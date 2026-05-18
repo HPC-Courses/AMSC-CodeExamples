@@ -86,7 +86,7 @@ main()
   cout.precision(oprec);
   cout.flags(oldf);
   cout.fill(oldfill);
-  cout << " ****************   USING MANIPULATORS" << endl << endl;
+  cout << "\n ****************   USING MANIPULATORS" << endl << endl;
 
   int maxprec = std::numeric_limits<double>::digits10;
   cout << std::setprecision(maxprec) << std::scientific << pi
@@ -120,30 +120,31 @@ main()
   cout << std::noboolalpha;
 
   // The new formatting stuff!
-  std::cout << "Now with the new format facility introduced in C++20\n";
+  cout << "\n ****************   USING std::format " << endl << endl;
   cout << std::format("{:.{}e} Max precision, Scientific format", pi, maxprec)
        << endl; // scientific format with exponent indicated by e. note the
-                // double brace
+                // double braces to interpret maxprec as a modifier
   cout << std::format("{:.4e} with 4 digits, Scientific format", pi) << endl;
   // I like uppercase E
   cout << std::format("{:.4E} with 4 digits, Scientific format, Uppercase E",
                       pi)
        << endl; // I specify the precision
   //
-  cout << std::format("{:<25.15}{} Width 25 precision 15", pi, 123) << endl;
+  cout << std::format("{:<25.15}|{} Width 25 precision 15, left justified", pi,
+                      123)
+       << endl;
+  cout << std::format("{:>25.15}|{} Width 25 precision 15, right justified", pi,
+                      123)
+       << endl;
   cout << std::format("{} This is a bool", a)
        << endl; // default is to print 1 for true and 0 for false
   cout << std::format("{:b} This is again a bool", a)
        << endl; // print bool in binary format, i.e. 1/0 for true/false
-  //
-  cout << std::format("{:<25.8} {} Internal padding, width 25", pi, j) << endl;
-  cout << std::format("{:<25.8} {} Left padding, width 25", pi, j) << endl;
-  //
-  cout
-    << std::format(
-         "{:#>25.8} {} Right padding with # as padding char and 8 sign. digits",
-         pi, j)
-    << endl;
+                //
+  cout << std::format("{:#>25.8} {} Right justified with # as padding char and "
+                      "8 sign. digits",
+                      pi, j)
+       << endl;
   //
   cout << std::format("{:+o} 1234 in octal base", i) << endl;
   cout << std::format("{:+x} 1234 in hexadecimal", i) << endl;
