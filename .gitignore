@@ -285,3 +285,5 @@ Examples/src/Utilities/test_parallel_for
 Examples/src/Utilities/test_range_to_vector
 Examples/src/Utilities/test_tuple_util
 *.fdb_latexmk
+/Examples/src/OptimizationAndProfiling/html/*
+*.so.*
