@@ -1,3 +1,4 @@
+#!/bin/python
 import mymodule as my
 print("give me two integer numbers:")
 a, b=map(int, input().split())
