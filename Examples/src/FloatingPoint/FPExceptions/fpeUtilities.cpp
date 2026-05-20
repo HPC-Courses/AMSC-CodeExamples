@@ -3,6 +3,13 @@
 // The C++11 standard requires this pragma to be activated
 // Only some compilers have this feature however.
 // Ignore possible warnings
+// This GCC Diagnostic pragma is used to ignore warnings about the use of the
+// "fenv.h" header, which is part of the C standard library and may not be fully
+// supported in C++. The pragma tells the GCC compiler to ignore any warnings
+// that arise from including this header file, allowing the code to compile
+// without issues related to this specific header.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunknown-pragmas"
 #pragma STDC FENV_ACCESS ON
 namespace apsc
 {
@@ -42,3 +49,4 @@ test_fpe_exception(bool on)
     return false;
 }
 } // namespace apsc
+#pragma GCC diagnostic pop

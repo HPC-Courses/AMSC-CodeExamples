@@ -12,9 +12,11 @@
 // The C++11 standard requires this pragma to be activated
 // Only some compilers have this feature however.
 // Ignore possible warnings
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunknown-pragmas"
 #pragma STDC FENV_ACCESS on
-#warning "ABORTING ON FPE ACTIVATED: "
-#warning "FE_INVALID FE_DIVBYZERO FE_OVERFLOW are trapped"
+#pragma message \
+  "ABORTING ON FPE ACTIVATED: FE_INVALID FE_DIVBYZERO FE_OVERFLOW are trapped"
 //! If FPE_ABORT is set a fp exception causes the progam to terminate
 /* C style implementation */
 //   static void __attribute__ ((constructor))
@@ -36,6 +38,7 @@ struct FpeTrap
   }
 };
 } // namespace
+#pragma GCC diagnostic pop
 #endif
 
 #endif
