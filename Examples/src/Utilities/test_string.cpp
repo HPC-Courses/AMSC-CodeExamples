@@ -9,7 +9,7 @@ main()
   string a_copy(a);
   cout << "Original     :#" << a << "# string is between hashes" << endl;
   cout << "Trimmed  left:#" << Utility::ltrim(a) << "#" << endl;
-  // put back original: ltrim modifies the argument
+  // `ltrim()` returns a trimmed copy; it does not modify `a`.
   cout << "Trimmed right:#" << Utility::rtrim(a) << "#" << endl;
   cout << "Trimmed fully:#" << Utility::trim(a) << "#" << endl;
   cout << "Upper Case   :" << Utility::toupper(a) << endl;

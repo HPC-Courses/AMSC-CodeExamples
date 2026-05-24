@@ -1,98 +1,148 @@
-#Various Utilities#
+# Various Utilities
 
-In this directory you have utilities that may be included and used in
-other examples. So, you need to install them before moving to the other
-examples.
+This directory contains utilities that can be included and used in
+other examples. You should therefore install them before moving on to the
+other examples.
 
-You need to do
+Run:
 
     make 
     make install
 
-to install them. `make` will produce both a dynamic and a static library, called `libpacs.so` and `libpacs.a`, respectively. `make install` installs the header files in `PACS_ROOT/include` and the libraries into `PACS_ROOT/lib`. Use `make DEBUG=no` if you want the library code to be optimised.
+to install them. `make` produces both a shared and a static library,
+called `libpacs.so` and `libpacs.a`, respectively. `make install`
+installs the header files into `PACS_ROOT/include` and the libraries into
+`PACS_ROOT/lib`. Use `make DEBUG=no` if you want the library code to be
+optimized.
 
-After you have installed the libraries you can run
+After installing the libraries, you can run:
 
     make test
 
-which produces tests for most of the utilities. All tests start with `test_`. You may have a look at the source to see what they do.
+This builds tests for most of the utilities. All test executables start
+with `test_`. You may inspect the source files to see what they do.
 
 **Remember to install the utilities, they are used by other examples!**
 
 
-**Note**: some utilities are in a nested namespace of the namespace `apsc`. Check it out by looking at the code or at the examples.
+**Note**: some utilities live in a nested namespace inside `apsc`. Check
+the code or the examples to see the exact layout.
 
 List of the utilities:
 
-* `absdiff` If you have to compute the absolute difference of two integral type
-you cannot just use `std::abs(x-y)` since if the integral types are unsigned the difference gives wrong result if x>y. This utility computes the correct result
-if the arguments are both of signed or unsigned type. It gives an error otherwise, since the situation is ambiguous.
+* `absdiff` If you need the absolute difference of two integral values, you
+  cannot simply use `std::abs(x-y)`: if the types are unsigned, the result is
+  wrong when `x > y`. This utility computes the correct result when both
+  arguments are signed or both are unsigned. It rejects mixed cases because the
+  intent would be ambiguous.
 
-* `Arithmetic.hpp`  introduces concepts to constrain template types to floating point or integral types, possibly including also complex numbers. 
+* `Arithmetic.hpp` introduces concepts to constrain template types to floating-
+  point or integral types, optionally including complex numbers.
 
-* `booleanConcept.hpp` A concept that expresses the semantic of a boolean type.
+* `booleanConcept.hpp` A concept expressing the semantics of a boolean type.
 
-* `chrono`  A utility to take times, built on the chrono utilities of the standard library.
+* `chrono` A timing utility built on top of the Standard Library `chrono`
+  facilities.
 
-* `CloningUtilities` Tools for clonable classes (Prototype design pattern). It contains some type traits to test if a class `T` contains the (usually virtual) method
+* `CloningUtilities` Tools for clonable classes (Prototype design pattern). It
+  contains type traits to test whether a class `T` provides the following
+  (usually virtual) member function:
 
 ```cpp
 std::unique_ptr<B> clone() const;
 ```
 
-that returns the pointer to a copy of the object wrapped into a
-unique_ptr.  `B` can be either `T` or a base class of `T`. It also contains
-an interesting class, called `PointerWrapper`, which implements an owning pointer with deep copy
-semantic! The "pointed" class should be clonable. It means that you can use it to implement composition of a polymorphic object and have automatically the copy operators in the composing class!
+that returns a pointer to a copy of the object wrapped in a
+`unique_ptr`. `B` can be either `T` or a base class of `T`. It also
+contains an interesting class, `PointerWrapper`, which implements an owning
+pointer with deep-copy semantics. The pointed-to class must be clonable. This
+lets you implement composition with a polymorphic object and obtain the copy
+operations of the composing class automatically.
 
-* `cxxversion` To test with which version of C++ you are compiling your code
+* `cxxversion` Reports which C++ standard version is being used to compile your
+  code.
 
-* `extendedAssert`  Asserts with a message. It extends assert macro so that you can insert a message. There are also switches that can be activated with the `-DXXX` compiler option to change the behaviour of some of them.
+* `extendedAssert` Assertions with messages. It extends the `assert` macro so
+  that you can attach a message. There are also switches that can be enabled
+  with `-DXXX` compiler options to change the behavior of some checks.
 
 * `Factory`  A generic object factory. Inspired by a code by [Andrei Alexandrescu](https://en.wikipedia.org/wiki/Andrei_Alexandrescu). 
 
-* `GetPot`  GetPot command parser<http://getpot.sourceforge.net/>. I have simplified the version available on the given link, so you have just to so `#include <GetPot>` of `#include "GetPot"`, and have it available.
+* `GetPot` GetPot command parser <http://getpot.sourceforge.net/>. The version
+  here has been simplified, so you only need `#include <GetPot>` or
+  `#include "GetPot"` to use it.
 
-* `gnuplot-iostream` A stream to open gnuplot from within a program. Useful for simple visualizations within your code. You need[gnuplot](http://www.gnuplot.info/) installed in your system (it is available as debian package).
+* `gnuplot-iostream` A stream interface to open `gnuplot` from within a
+  program. Useful for simple visualizations. You need
+  [gnuplot](http://www.gnuplot.info/) installed on your system (it is available
+  as a Debian package).
 
-* `hashCombine.hpp` Provides the function object `hash_combine` that may be used to combine the hash key of object of different types, provided the latter have `std::hash` defined. It can be used to create the hash key of an user-defined class by combining that of non-static members of the class, in order to achieve better uniformity. The usage is explained in the file.
+* `hashCombine.hpp` Provides the function object `hash_combine`, which can be
+  used to combine the hash keys of objects of different types, provided they
+  have `std::hash` defined. It can be used to build the hash key of a user-
+  defined class by combining the hashes of its non-static data members, in
+  order to obtain better uniformity. Usage is explained in the file.
 
-* `is_complex.hpp` A header file containing a type trait to interrogate is a type is a `std::complex<T>`. It also include the definition of the concept `Complex` to constrain a template type to be an `std::complex<T>` and `ArithmeticComplex`, where we also impose that `T` be either a floating point or an integer.
+* `is_complex.hpp` A header containing a type trait that checks whether a type
+  is `std::complex<T>`. It also defines the concept `Complex`, used to
+  constrain a template parameter to `std::complex<T>`, and
+  `ArithmeticComplex`, which further requires `T` to be either floating-point
+  or integral.
 
-* `is_eigen.hpp` A header file containing a type trait to interrogate is a type is a `Eigen::Matrix`.
-We hve also traits and concepts to test sparse and dense matrices separately.
+* `is_eigen.hpp` A header containing type traits to test whether a type is an
+  `Eigen::Matrix`. It also provides traits and concepts to distinguish sparse
+  and dense matrices.
 
 * `is_specialization.hpp`. Type traits and concepts to test if a class is the specialization of a class template.
 
-* `JoinVectors.hpp` Just an example on how to imitate the `join` Python command. You can use it to iterate jointly on a set of vectors. 
+* `JoinVectors.hpp` An example showing how to mimic Python's `zip`. You can use
+  it to iterate jointly over a set of vectors.
   
 * `overloaded` A facility, called `overloaded` that implements the overloaded design pattern that may be used to visit a `std::variant`.
 
-* `parallel_for` An example of metaprogramming to implement a parallel for loop. I show also some example of use of concepts.
+* `parallel_for` An example of metaprogramming used to implement a parallel
+  `for` loop. It also shows some uses of concepts.
 
-* `Proxy.hpp` It is not a proxy (bad naming, sorry). It is an utility that may be used to register objects in an object Factory automatically.
+* `Proxy.hpp` Despite the name, it is not a proxy. It is a utility that can be
+  used to register objects in an object factory automatically.
 
-* `range_to_vector` If you create a view of a range, for example using `std::views::iota`, of by applying views to a vector, you cannot use it to initialize a vector. A proposal is made to do this in a next C++ standard but so far we need to do it ourselves. This utility converts a range to a vector. It is a simple wrapper around `std::ranges::copy`. More information may be found [here](https://timur.audio/how-to-make-a-container-from-a-C++20-range). 
+* `range_to_vector` If you create a range view, for example with
+  `std::views::iota` or by applying views to a vector, you cannot directly use
+  it to initialize a `std::vector`. A proposal exists for a future C++
+  standard, but for now we still need to do it ourselves. This utility
+  converts a range to a vector. It is a simple wrapper around
+  `std::ranges::copy`. More information can be found
+  [here](https://timur.audio/how-to-make-a-container-from-a-C++20-range).
 
-* `readCSV` A class to read csv files. Useful if you have data in a speadsheet and you want to load it into a C++ code. There are better tools than this one around. But this is relativley simple and handy
+* `readCSV` A class for reading CSV files. Useful if you have data in a
+  spreadsheet and want to load it into a C++ program. Better tools exist, but
+  this one is relatively simple and handy.
 
 * `scientific_precision` A function that sets the precision of a stream to the maximum value for a floating point. It contains also stream manipulators for the same purpose.
 
-* `setUtilities` Three utilities to simplify operations on sets (union/difference/intersection)
-represented by an ordered container. They are built on top of the analogous
-utilities of the Standard Library, but with a simpler interface. 
+* `setUtilities` Three utilities that simplify set operations
+  (union/difference/intersection) on ordered containers. They are built on top
+  of the corresponding Standard Library algorithms, but expose a simpler
+  interface.
 
 * `StatisticsComputations.hpp` Some tools to compute basic statistics of a sample.
 
-* `string_utility` Some extra utilities for strings: trimming (eliminate useless blanks) and lower-upper conversion. We have recently added utilities for reading a whole text file in a buffer (it is faster, though potentially memory consuming, and an utility that computed the Levenshtein edit distance between two strings).
+* `string_utility` Extra string utilities: trimming, lower/upper-case
+  conversion, reading a whole text file into a buffer (faster, but potentially
+  memory-hungry), and computing the Levenshtein edit distance between two
+  strings.
 
-* `toString` Converts anything for which there is the `<<` streaming operator to a string. A use of `std::stringstream`.
+* `toString` Converts anything that supports the `<<` streaming operator into a
+  string. It is a straightforward use of `std::stringstream`.
 
 * `tuple_utilities.hpp` Contains some utilities for tuples:  `tuple_common_type_t<Tuple>` that returns the common type of all types contained in a tuple, and `for_each<Tuple F>` and `for_each2<Tuple, F>` that apply (possibly in parallel) the function object `F` to all elements of the tuple. The first one returns a tuple with the result, the second one does not and is thus applicable also if `F` is a void function. `all_of<Tuple,F>` and `any_of<Tuple,F>`, that apply predicate `F` to all elements of a tuple. The first returns true if the predicate is true for all elements, the second if it is true for at least one element.
 
-* `type_name.hpp` A utility to pretty-print the name of the type of a variable. It is useful for debugging. It is based on the `boost::core::demangle` function. 
+* `type_name.hpp` A utility to pretty-print the type name of a variable. It is
+  useful for debugging. It is based on `boost::core::demangle`.
    
-** Note ** `Factory.hpp` and `Proxy.hpp` are in fact links to the same file in the folder `GenericFactory`. If the files are not present for some reason you may safely copy in `Utility/` the files in `GenericFactory/`.
+**Note**: `Factory.hpp` and `Proxy.hpp` are actually links to the same file in
+the `GenericFactory` folder. If those files are missing for some reason, you
+may safely copy them from `GenericFactory/` into `Utilities/`.
 
 
 ## An explanation of `hash_combine`.##
@@ -139,5 +189,4 @@ In `CloningUtilities` and `joinVectors` you have classes that define a dereferen
 (`->`). Something you do not find very often.
 
 In `hashCombine.hpp` the use of some bit-wise operators and fold expression.
-
 

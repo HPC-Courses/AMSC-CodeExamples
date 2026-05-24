@@ -9,7 +9,7 @@ std::string
 toupper(std::string const &s)
 {
   std::string res;
-  // convert to upper case.`
+  // Convert all characters to upper case.
   std::transform(s.begin(), s.end(), std::back_inserter(res),
                  [](std::string::const_reference c) {
                    return std::toupper(c, std::locale());
@@ -21,7 +21,7 @@ std::string
 tolower(std::string const &s)
 {
   std::string res;
-  // convert to upper case.`
+  // Convert all characters to lower case.
   std::transform(s.begin(), s.end(), std::back_inserter(res),
                  [](std::string::const_reference c) {
                    return std::tolower(c, std::locale());
@@ -53,20 +53,23 @@ GlobbedTextReader::read(std::string const &fileName)
       throw std::runtime_error("globbedTextHandler::read: cannot open file " +
                                fileName);
     }
-  streampos size;
+  // Determine the file size from the current position at the end.
+  auto const size = file.tellg();
+  if(size < 0)
+    throw std::runtime_error("globbedTextHandler::read: cannot determine size "
+                             "of file " +
+                             fileName);
+
   this->MySize = static_cast<std::size_t>(size);
-  // get size looking for the end of the file
-  size = file.tellg();
-  // size buffer
-  this->MyBuffer = std::make_unique<char[]>(size);
-  // go back at the beginning
+  this->MyBuffer = std::make_unique<char[]>(this->MySize);
+  // Go back to the beginning.
   file.seekg(0, ios::beg);
-  // read all in the buffer
-  file.read(this->buffer(), size);
+  // Read the whole file into the buffer.
+  file.read(this->buffer(), static_cast<std::streamsize>(this->MySize));
   file.close();
-  // Set the stringstream to use the read buffer and not the internal one
-  this->MyGlobbedText.rdbuf()->pubsetbuf(MyBuffer.get(), size);
-  // maybe is not needed
+  // Bind the string stream to the external buffer.
+  this->MyGlobbedText.rdbuf()->pubsetbuf(MyBuffer.get(),
+                                         static_cast<std::streamsize>(MySize));
   this->setAtStart();
 }
 
@@ -83,10 +86,9 @@ chop(std::stringstream &sstream)
       "chop: sstream is not in a valid state. Cannot read");
 
   std::vector<std::string> result;
-  while(!sstream.eof() && !sstream.fail())
+  std::string              line;
+  while(std::getline(sstream, line))
     {
-      std::string line;
-      std::getline(sstream, line);
       result.emplace_back(std::move(line));
     }
   return result;
@@ -118,7 +120,7 @@ stringDistance(std::string const &a, std::string const &b)
           else
             {
               d[i][j] =
-                std::min({d[i - 1u][j - 1u], d[i][j - 1u], d[i - 1u][j - 1u]}) +
+                std::min({d[i - 1u][j - 1u], d[i][j - 1u], d[i - 1u][j]}) +
                 1u;
             }
         }

@@ -12,20 +12,17 @@
 #include <utility>
 #include <vector>
 /*
-  Part of this software has been taken from internet. I thank the
-  original (unknwown) authors.
-  It has been changed to make it more readable using some C++11 fetures. Even if
-  may be less efficient than original code.
+  Part of this software was adapted from code found online. I thank the
+  original, unknown authors.
+  It has been revised to improve readability using C++11 features, even if
+  that may make it slightly less efficient than the original code.
  */
 namespace Utility
 {
-//! Trims a string from left eliminating leading spaces
+//! Trims leading whitespace from a string.
 /**
-   @param a A string
-   @return the trimmed string
-
-   @note a is also returned trimmed: after a call to
-   ltrim(a) string a is trimmed!!
+   @param sin The input string.
+   @return A copy of the string with leading whitespace removed.
  */
 inline std::string
 ltrim(std::string sin)
@@ -39,13 +36,10 @@ ltrim(std::string sin)
   return s;
 }
 
-//! Trims a string from right eliminating trailing spaces
+//! Trims trailing whitespace from a string.
 /**
-   @param a A string
-   @return the trimmed string
-
-   @note a is also returned trimmed: after a call to
-   ltrim(a) string a is trimmed!!
+   @param sin The input string.
+   @return A copy of the string with trailing whitespace removed.
  */
 inline std::string
 rtrim(std::string sin)
@@ -61,12 +55,10 @@ rtrim(std::string sin)
   return s;
 }
 
-//! trim from both ends
+//! Trims whitespace from both ends of a string.
 /**
-   @param a A string
-   @return the trimmed string
-   @note a is also returned trimmed: after a call to
-   ltrim(a) string a is trimmed!!
+   @param s The input string.
+   @return A copy of the string with leading and trailing whitespace removed.
  */
 inline std::string
 trim(std::string s)
@@ -74,10 +66,10 @@ trim(std::string s)
   return ltrim(rtrim(s));
 }
 
-//! Converting a whole string using current locale
+//! Converts a whole string using the current locale.
 /**
-   @param s A string
-   @return the modified string
+   @param s A string.
+   @return The modified string.
  */
 
 /**@{*/
@@ -86,14 +78,14 @@ std::string tolower(std::string const &s);
 /**@}*/
 
 /*!
- * A functor for comparing strings
+ * A functor for case-insensitive string comparison.
  */
 struct compareNoCase
 {
   /*!
-   * @param a A string
-   * @param b A string
-   * @return the less operator a<b applied on the strings ignoring case
+   * @param a First string.
+   * @param b Second string.
+   * @return The result of comparing the strings case-insensitively.
    */
   inline bool
   operator()(std::string const &a, std::string const &b) const
@@ -103,9 +95,9 @@ struct compareNoCase
 };
 
 /*!
- * A nice utility that reads an entire line and returns it into a streamstring
- * @param stream An input stream
- * @return an input string stream
+ * Reads a whole line and returns it as an input string stream.
+ * @param stream An input stream.
+ * @return An input string stream containing the extracted line.
  */
 std::istringstream nextLine(std::istream &stream);
 
@@ -114,60 +106,58 @@ std::istringstream nextLine(std::istream &stream);
  * whitespace that follows, including a newline character, will be left on the
  * input stream. Then, when switching to line-oriented input, the first line
  * retrieved with getline() will be just that whitespace. In the likely case
- * that this is unwanted behaviour, possible solutions is to call this function
- * passing the stream to be cleaned up.
+ * that this is unwanted behaviour, one possible solution is to call this
+ * function on the stream before switching to `getline()`.
  *
- * @param istream The input stream
+ * @param istream The input stream.
  */
 void cleanStream(std::istream &istream);
 /*!
- * This is an helper class to allow the handling of a stringstream that holds a
- * whole text file in a buffer.
+ * Helper class that manages a string stream backed by a whole text file loaded
+ * into memory.
  *
- * Reading the file is faster since it is read in a whole block. At the price of
- * more memory usage.
+ * Reading can be faster because the file is loaded in a single block, at the
+ * cost of higher memory usage.
  *
- * No copy operations are available (but it can be moved) since it is meant only
- * as to be an helper class and the copy could be ambiguous (do you want deep or
- * shallow copy of the text buffer?).
+ * Copy operations are not provided (but move operations are available) because
+ * the class is meant only as a helper and copy semantics would be ambiguous:
+ * should the text buffer be copied deeply or shared?
  *
- * You can extract the read data from the buffer using the streaming operator or
- * by accessing (by reference) the stored stringstream
- *
- *
+ * You can extract the data through the streaming operator or by accessing the
+ * underlying string stream by reference.
  */
 class GlobbedTextReader
 {
 public:
   /*!
-   * Class is default constructible
+   * Default constructor.
    */
   GlobbedTextReader() = default;
   /*!
-   * This constructor also reads the content of a text file
-   * @param fileName the name of the file
-   * @throw a std runtime exception if file cannot be opened
+   * Builds the object and immediately reads a text file.
+   * @param fileName The file name.
+   * @throw std::runtime_error if the file cannot be opened.
    */
   GlobbedTextReader(std::string const &fileName);
   /*!
-   * Reads the content of a whole text file
-   * @param fileName the file name
-   * @throw a std runtime exception if file cannot be opened
+   * Reads the entire contents of a text file.
+   * @param fileName The file name.
+   * @throw std::runtime_error if the file cannot be opened.
    */
   void read(std::string const &fileName);
   /*!
-   * Allow extraction of the stored text using the classical streaming operator
+   * Extracts data from the stored text using the standard streaming operator.
    *
-   * @tparam T the data type
-   * @param data The data that will be read
-   * @return This object
+   * @tparam T The data type.
+   * @param data The destination object.
+   * @return This object.
    */
   template <class T> GlobbedTextReader &operator>>(T &data);
   /*!
-   * You can get the enclosed string stream to operate on it at wish.
+   * Returns the enclosed string stream for direct access.
    * @note you should extract it only by reference.
-   * @return a const reference to the stringstrem associated to the text buffer
-   * (const version)
+   * @return A const reference to the string stream associated with the text
+   * buffer.
    */
   std::stringstream const &
   globbedText() const
@@ -175,10 +165,10 @@ public:
     return MyGlobbedText;
   }
   /*!
-   * You can get the enclosed string stream to operate on it at wish.
-   * @note you should extract it only by reference
+   * Returns the enclosed string stream for direct access.
+   * @note You should access it only by reference.
    *
-   * @return the stringstream associated to the text buffer
+   * @return The string stream associated with the text buffer.
    */
   std::stringstream &
   globbedText()
@@ -186,21 +176,22 @@ public:
     return MyGlobbedText;
   }
   /*!
-   * Release the buffer.
+   * Releases the buffer.
    *
-   * This member function is set only to allow releasing memory after you have
-   * finished operated with the stringstream After calling close the object is
-   * not usable anymore. Accessing the stringstream leads to undefined behaviour
-   * So use with care
+   * This function exists only to release memory after you are done using the
+   * string stream. After calling `close()`, the object should not be used
+   * again.
    */
   void
   close()
   {
-    MyBuffer.release();
+    MyGlobbedText.str({});
+    MyGlobbedText.clear();
+    MyBuffer.reset();
     MySize = 0;
   }
   /*!
-   * @return the size of the internal buffer (in bytes)
+   * @return The size of the internal buffer, in bytes.
    */
   std::size_t
   size() const
@@ -209,19 +200,19 @@ public:
   }
 
 private:
-  //! the underlying stringstream
+  //! The underlying string stream.
   std::stringstream MyGlobbedText;
-  //! The buffer holding the read text, wrapped in a unique pointer.
+  //! The buffer that stores the file contents.
   std::unique_ptr<char[]> MyBuffer;
-  //!
+  //! Size of the internal buffer.
   std::size_t MySize = 0;
-  //! Utility to get the buffer (used only internally)
+  //! Returns the internal raw buffer pointer.
   char *
   buffer()
   {
     return MyBuffer.get();
   }
-  //! Reset reading from start. Used only internally
+  //! Resets reading to the beginning of the stream.
   void
   setAtStart()
   {
@@ -238,14 +229,14 @@ GlobbedTextReader::operator>>(T &data)
 }
 
 /*!
-@brief It reads a whole file into a string. A simpler implementation of the
-GlobbedTextReader
-@details It uses the Scott Mayers trick. Maybe less efficient than the
-GlobbedTextReader technique but more elegant and simple. It is meant to be used
-when you need to read a whole file in a string.
-@param file The flile sttrem from which to read. It must be open ad ready to
-read
-@return The whole file in a string
+@brief Reads a whole file into a string.
+@details This is a simpler alternative to `GlobbedTextReader`. It uses the
+Scott Meyers idiom. It may be less efficient than `GlobbedTextReader`, but it
+is simpler and often easier to use when you just need the whole file as a
+string.
+@param file The file stream from which to read. It must already be open and
+ready for reading.
+@return The whole file as a string.
 */
 inline std::string
 readWholeFile(std::istream &file)
@@ -255,33 +246,33 @@ readWholeFile(std::istream &file)
 }
 
 /*!
- * It chops a stringstream into a vector of strings, one for each line stored in
- * the stringstream buffer
+ * Splits a string stream into a vector containing one string per line.
  *
- * @param sstream the stringstream (it must be in a valid state!)
- * @return the vector with strings
+ * @param sstream The string stream. It must be in a valid state.
+ * @return A vector containing the extracted lines.
  */
 std::vector<std::string> chop(std::stringstream &sstream);
 
 /*!
 Compute the Levenshtein edit distance between two strings.
 
-Levenshtein distance is the number of edits necessary to pass from one
-string to the other. If zero the strings are identical
+Levenshtein distance is the number of edits needed to transform one
+string into the other. If it is zero, the strings are identical.
 
-Re-adapted from a code of Jonathan Wood, found on
+Readapted from code by Jonathan Wood, found at
 http://www.blackbeltcoder.com/
 
 @note This function should be used only with small strings. It
-builds internally a matrix (in the form of vectors of vectors) of
-size the product of the string sizes+1. If you want a more memory
-efficient algorithm, you can modify this algoritm noting ther in
-fact you just need a tridiagonal matrix, but things gets a little
-more compicated. The advantage of this algorithm is its simplicity
+builds a matrix internally (as a vector of vectors) whose size is the
+product of `(a.size() + 1) * (b.size() + 1)`. If you need a more memory-
+efficient algorithm, note that in practice only a band of the matrix is
+required, but the implementation becomes more complicated. The advantage of
+this version is its simplicity.
 
-@param a First string
-@param b Second string
-@return The Levenshtein distance. Higher distance stings are more different
+@param a First string.
+@param b Second string.
+@return The Levenshtein distance. Larger values mean the strings are more
+different.
 
 */
 unsigned int stringDistance(std::string const &a, std::string const &b);

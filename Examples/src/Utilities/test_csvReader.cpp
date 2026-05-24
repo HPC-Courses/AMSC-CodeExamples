@@ -16,17 +16,17 @@ main()
   ReadCSV       reader;
   // Every record has at least 3 tokens
   reader.setMinTokens(3u);
-  // I set to 4 the minumn number of records.
-  // If you know the number of records this avoids useless memory reallocation
+  // Set the minimum number of records to 4.
+  // If you know the number of records, this avoids unnecessary reallocations.
   reader.setMinRecords(4u);
-  // I want verbosity
+  // Enable verbose output.
   reader.setVerbose(true);
-  // I skip the first line
+  // Skip the first line.
   reader.setSkippedLines(1);
-  // Strip quotation marks in text token, i.e. "anc" -> anc
+  // Strip quotation marks from text tokens, e.g. "anc" -> anc.
   reader.stripQuotation(true);
-  // Read!
+  // Read the file.
   reader.read(db);
-  // Write!
+  // Write the parsed records.
   reader.writeAllRecords(std::cout);
 }

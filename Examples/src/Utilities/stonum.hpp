@@ -12,14 +12,8 @@
 #include <type_traits>
 #include <cctype>
 #include "string_utility.hpp"
-// Taken from https://www.cppstories.com/2018/06/optional-examples-wall/
-  // Converts a text number to specified type.
-  // All of the text must be a valid number of the specified type.
-  // eg 63q is invalid
-  // Defaults to type int
-  // st - string to convert
-  // returns either value of converted number or
-  // no value if text number cannot be converted
+// Adapted from:
+// https://www.cppstories.com/2018/06/optional-examples-wall/
 namespace Utility
 {
 /*!
@@ -37,7 +31,7 @@ bool myIsdigit(unsigned char ch)
 /*!
  * @brief Converts a text number to specified type.
  * @details
- * It is an example of use of std::optional taken from
+ * It is an example of `std::optional` usage taken from
  * https://www.cppstories.com/2018/06/optional-examples-wall/
  *
  * Example of use:
@@ -45,29 +39,29 @@ bool myIsdigit(unsigned char ch)
  * @code
  * #include <iostream>
  * #include <string>
- * #include "stnum.hpp"
+ * #include "stonum.hpp"
  * ...
- * // reading a line with the number
- * getline(file,s)
- * // extracting the number
+ * // Read a line containing a number
+ * getline(file, s);
+ * // Extract the number
  * auto n = Utility::stonum<int>(s);
  * if(n) {
- *  // we have a number
+ *  // We have a valid number
  *  std::cout << "The number is " << *n << std::endl;
  *  }
- *  @endcode
- * *
+  *  @endcode
+ *
  * @tparam T The type of number we want to extract
- * @param st The string with the number values
- * @return If the string contains a number of type T, it returns the number
- *        otherwise it returns an empty optional
+ * @param st The string containing the number.
+ * @return If the string contains a number of type `T`, returns that number;
+ * otherwise returns an empty optional.
  */
 template <typename T = int>
 std::optional<T>
 stonum(const std::string &st)
 {
   const auto s = Utility::trim(st);
-  // Check the format of the string
+  // Check the format of the string.
   bool       ok = !s.empty() && (myIsdigit(s.front()) ||
                            (((std::is_signed_v<T> && (s.front() == '-')) ||
                              (s.front() == '+')) &&
@@ -80,8 +74,8 @@ stonum(const std::string &st)
       std::istringstream ss(s);
 
       ss >> v;
-      // check if we have read the whole string
-      ok = !ss.fail();
+      // Accept the value only if the whole string was consumed.
+      ok = !ss.fail() && ss.eof();
     }
   return ok ? v : std::optional<T>{};
 }

@@ -7,8 +7,8 @@
 namespace Utility
 {
 /*!
- * Class for reading a csv file. It recognizes text cells ignoring separation
- * character for within tokens (cells) marked by " "
+ * Class for reading a CSV file. It supports quoted text cells, so separator
+ * characters inside `"..."` are treated as part of the cell content.
  */
 class ReadCSV
 {
@@ -26,7 +26,7 @@ public:
   ReadCSV() = default;
   /*!
    * Change the separator character
-   * The default is the comma
+   * The default is a comma.
    */
   void
   setSeparator(CharT s = CharT{','})
@@ -36,7 +36,7 @@ public:
 
   /*
    * When reading a token protected by double quotation marks (" ") strip the
-   * marks from the stored tokens (default false: quotations are kept)
+   * marks from the stored tokens (default: `false`, so quotes are kept).
    */
   void
   stripQuotation(bool strip = false)
@@ -44,10 +44,10 @@ public:
     stripApexes = strip;
   }
   /*!
-   * Change the minimum number of Tokens in a record (default 1)
+   * Change the minimum number of tokens in a record (default: 1).
    * If we read a number of tokens less than the minimum, the record is
    * completed with empty cells.
-   * If different from 1, it is also used to preallocate memory
+   * If different from 1, it is also used to preallocate memory.
    */
   void
   setMinTokens(unsigned n = 1u)
@@ -56,7 +56,7 @@ public:
   }
   /*!
    * Change the minimum number of records
-   * if different from 0 it is used to preallocate memory
+   * If different from 0, it is used to preallocate memory.
    */
   void
   setMinRecords(unsigned n = 0u)
@@ -76,10 +76,10 @@ public:
     verbose = v;
   }
   /*!
-   * Get the read records. It returns a matrix
-   * so that using [i][j] you have the j-th token of record i
+   * Get the parsed records. It returns a matrix
+   * so that using `[i][j]` you access the `j`-th token of record `i`
    * (remember, starting from 0).
-   * @return The matrix containing all redords and tokens
+   * @return The matrix containing all records and tokens.
    */
   RecordList
   getTokens()
@@ -94,11 +94,11 @@ public:
     allRecords.shrink_to_fit();
   }
   /*!
-   * Get all tokens form an input stream
-   * @param in The input stream
+   * Read all tokens from an input stream.
+   * @param in The input stream.
    */
   void read(std::basic_istream<CharT> &in);
-  //! Writes all the tokens on a file
+  //! Writes all records to an output stream.
   void writeAllRecords(std::basic_ostream<CharT> &) const;
 
 private:
