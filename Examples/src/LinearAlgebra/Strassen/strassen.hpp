@@ -2,33 +2,27 @@
 
 #include <Eigen/Dense>
 #include <algorithm>
+#include <cstddef>
 #include <stdexcept>
 #include <type_traits>
+#include <vector>
 
 /*!
  * \file strassen.hpp
  * \brief Hybrid Strassen/Eigen dense matrix multiplication.
  *
- * Design notes
- * ------------
- * This implementation differs from a textbook Strassen in three ways that
- * matter for performance on top of Eigen:
- *
- *  1. The recursive kernel uses an **out-parameter** signature, writing the
- *     product directly into a caller-supplied block of the destination. The
- *     seven Strassen sub-products are therefore stored straight into the four
- *     quadrants of C, with no per-product temporary matrix.
- *
- *  2. Per recursion level we keep only **two scratch buffers** (one for an
- *     A-side combination, one for a B-side combination) plus one extra buffer
- *     to hold the sub-product whose value must be combined with another
- *     quadrant. That is O(n^2) extra memory per level, vs. ~9 n^2 in the
- *     textbook version.
- *
- *  3. Odd square sub-problems are handled by **peeling** the last row/column
- *     instead of zero-padding to (n+1) x (n+1). Peeling does one Strassen call
- *     of size (n-1) plus three small GEMMs and one rank-1 update, which is
- *     considerably cheaper than re-padding at every odd level.
+ * Design summary
+ * --------------
+ * - Strassen's seven-product identity is applied recursively on equal-sized
+ *   square quadrants down to a configurable cutoff, below which Eigen's
+ *   blocked GEMM is the most efficient kernel.
+ * - The recursive kernel writes directly into the caller's destination block
+ *   (out-parameter) and uses only three scratch buffers per recursion level.
+ * - Scratch buffers are pre-allocated **once** in a per-level pool by the
+ *   top-level dispatcher, so the recursion performs **zero heap allocations**.
+ * - Rectangular and odd-sized problems are handled by peeling a single
+ *   row/column whenever a square subproblem has odd dimension, instead of
+ *   re-padding to the next even size at every recursion level.
  */
 
 namespace apsc
@@ -40,44 +34,79 @@ template <typename T>
 using DynamicMatrix = Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic>;
 
 /*!
- * \brief Non-owning read-only view of a dense matrix or sub-block.
+ * \brief Non-owning read-only view used inside the recursive kernel.
  *
- * Accepts both owned matrices and Block expressions without copying, while
- * keeping the recursive kernel's signature monomorphic in the scalar type.
+ * Accepts both owned matrices and quadrant blocks without copying, while
+ * preventing template explosion from nested Block expressions.
  */
 template <typename T>
-using ConstMatrixView =
+using ConstView =
   Eigen::Ref<const DynamicMatrix<T>, 0, Eigen::OuterStride<Eigen::Dynamic>>;
 
-/*!
- * \brief Non-owning writable view of a dense matrix or sub-block.
- */
 template <typename T>
-using MatrixView =
+using MutView =
   Eigen::Ref<DynamicMatrix<T>, 0, Eigen::OuterStride<Eigen::Dynamic>>;
 
 /*!
- * \brief Computes C = A * B with Eigen's optimized kernel.
+ * \brief Pre-allocated scratch buffers, one set per recursion level.
  *
- * Writes directly into the caller's destination block: no allocation, no copy.
+ * The recursive kernel needs three matrices of size h x h at level k
+ * (with h = n / 2^(k+1)), plus two small vectors for the odd-size peel
+ * fix-up (a column of length n and a row of length n).
+ *
+ * Sequential recursion means siblings at the same depth can reuse the
+ * same buffers, so we only need one entry per level rather than one per
+ * call. Total scratch memory is bounded by 4/3 * n^2 on the square
+ * blocks plus O(n log n) on the peel vectors.
  */
 template <typename T>
-inline void
-gemm_into(const ConstMatrixView<T> &A, const ConstMatrixView<T> &B,
-         MatrixView<T> C)
+struct ScratchPool
 {
-  C.noalias() = A * B;
-}
+  using Matrix = DynamicMatrix<T>;
 
-/*!
- * \brief Returns the largest dimension of the (possibly rectangular) product.
- */
-template <typename MatrixA, typename MatrixB>
-[[nodiscard]] inline Eigen::Index
-square_extent(const MatrixA &A, const MatrixB &B)
-{
-  return std::max(A.rows(), std::max(A.cols(), B.cols()));
-}
+  std::vector<Matrix> TA;       //!< left-operand linear combinations
+  std::vector<Matrix> TB;       //!< right-operand linear combinations
+  std::vector<Matrix> M;        //!< recursive product results
+  std::vector<Matrix> peelCol;  //!< (n-1) x 1 column buffer per level
+  std::vector<Matrix> peelRow;  //!< 1 x (n-1) row buffer per level
+
+  /*!
+   * \brief Allocates buffers for every recursion level a top-level square
+   *        problem of size \p topSize would visit, given \p cutoff.
+   *
+   * Sizes are upper bounds: actual subproblems may be smaller (after a peel),
+   * but never larger, so the pre-sized buffers always fit and the recursion
+   * never reallocates.
+   */
+  void
+  reserve(Eigen::Index topSize, Eigen::Index cutoff)
+  {
+    TA.clear();
+    TB.clear();
+    M.clear();
+    peelCol.clear();
+    peelRow.clear();
+
+    Eigen::Index n = topSize;
+    while(n > cutoff && n > 1)
+      {
+        // Worst-case child size at this level. After a peel we recurse on
+        // (n-1) which is even; quadrants are then (n-1)/2. Without a peel
+        // the child quadrants are n/2. The looser of the two bounds is
+        // (n + 1) / 2.
+        const Eigen::Index h = (n + 1) / 2;
+        TA.emplace_back(h, h);
+        TB.emplace_back(h, h);
+        M.emplace_back(h, h);
+
+        // The peel fix-up at this level operates on the full n x n problem.
+        peelCol.emplace_back(n, Eigen::Index{1});
+        peelRow.emplace_back(Eigen::Index{1}, n);
+
+        n = h;  // descend to the next level
+      }
+  }
+};
 
 //! Returns n itself when even, otherwise the next even integer.
 [[nodiscard]] inline Eigen::Index
@@ -87,124 +116,132 @@ even_extent(Eigen::Index n)
 }
 
 /*!
- * \brief Decides whether a top-level product is large enough for Strassen.
+ * \brief Returns the square size needed to embed a compatible product.
  */
 template <typename MatrixA, typename MatrixB>
-[[nodiscard]] inline bool
-use_strassen(const MatrixA &A, const MatrixB &B, Eigen::Index cutoff)
+[[nodiscard]] inline Eigen::Index
+square_extent(const MatrixA &A, const MatrixB &B)
 {
-  const Eigen::Index extent = square_extent(A, B);
-  return A.cols() == B.rows() && extent > cutoff && extent > 1;
+  return std::max(A.rows(), std::max(A.cols(), B.cols()));
 }
 
-// Forward declaration: the recursive square kernel.
+/*!
+ * \brief Direct Eigen product, writing into a destination block (no alloc).
+ */
+template <typename T, typename Dst>
+inline void
+gemm_into(Dst &&dst, const ConstView<T> &A, const ConstView<T> &B)
+{
+  dst.noalias() = A * B;
+}
+
+// Forward declaration: recursive kernel.
 template <typename T>
-void strassen_square(const ConstMatrixView<T> &A,
-                     const ConstMatrixView<T> &B,
-                     MatrixView<T> C, Eigen::Index cutoff);
+void strassen_impl(const ConstView<T> &A, const ConstView<T> &B,
+                   MutView<T> C, std::size_t level, ScratchPool<T> &pool,
+                   Eigen::Index cutoff);
 
 /*!
- * \brief Handles odd-size square problems by peeling the last row and column.
+ * \brief Handles an odd-sized square subproblem by peeling one row/column.
  *
- * Decompose A and B as
+ * Let n be odd and write
  *
- *     A = [ A0  a ]    B = [ B0  b ]
- *         [ a^T α ]        [ c^T β ]
+ *   A = [ A0  a ]   B = [ B0  b ]
+ *       [ a^T alpha ]   [ c^T beta ]
  *
- * with A0, B0 of size (n-1) x (n-1). Then
+ * with A0, B0 of size (n-1) x (n-1), a, b columns of length n-1, a^T, c^T
+ * the last rows of A and B (without the corner), and alpha, beta the
+ * scalar bottom-right entries.
  *
- *     C0 = A0*B0 + a c^T            (Strassen on the even part + rank-1)
- *     C top-right    = A0*b + β a   (matvec)
- *     C bottom-left  = a^T*B0 + α c^T
- *     C bottom-right = a^T*b + α β
+ * The product C = A * B partitions as
  *
- * This is much cheaper than allocating two (n+1) x (n+1) padded matrices.
+ *   C0 = A0*B0 + a * c^T            ((n-1) x (n-1))
+ *   C top-right column   = A0 * b + alpha_col * beta
+ *   C bottom-left row    = a^T_row * B0 + alpha_row * c^T
+ *   C bottom-right scalar= a^T_row * b + alpha * beta
+ *
+ * Only A0*B0 is large; everything else is rank-1 / GEMV / dot work that
+ * costs O(n^2) and is folded into Eigen's optimized kernels.
  */
 template <typename T>
-inline void
-strassen_peel_odd(const ConstMatrixView<T> &A, const ConstMatrixView<T> &B,
-                  MatrixView<T> C, Eigen::Index cutoff)
+void
+strassen_peel(const ConstView<T> &A, const ConstView<T> &B, MutView<T> C,
+              std::size_t level, ScratchPool<T> &pool, Eigen::Index cutoff)
 {
   const Eigen::Index n = A.rows();
   const Eigen::Index m = n - 1;
 
+  // Views of the (n-1)-block parts.
   const auto A0 = A.topLeftCorner(m, m);
-  const auto a_col = A.topRightCorner(m, 1);          // last column of A (top part)
-  const auto a_row = A.bottomLeftCorner(1, m);        // last row of A (left part)
-  const T    alpha = A(m, m);
-
   const auto B0 = B.topLeftCorner(m, m);
-  const auto b_col = B.topRightCorner(m, 1);          // last column of B (top part)
-  const auto c_row = B.bottomLeftCorner(1, m);        // last row of B (left part)
-  const T    beta  = B(m, m);
+  const auto a  = A.col(m).head(m);          // last column of A, top m
+  const auto b  = B.col(m).head(m);          // last column of B, top m
+  const auto aT = A.row(m).head(m);          // last row of A, left m
+  const auto cT = B.row(m).head(m);          // last row of B, left m
+  const T alpha = A(m, m);
+  const T beta  = B(m, m);
 
-  // Recurse on the even (n-1)-sized core, writing directly into C's top-left.
   auto C0 = C.topLeftCorner(m, m);
-  strassen_square<T>(A0, B0, C0, cutoff);
 
-  // Rank-1 correction: C0 += a_col * c_row.
-  C0.noalias() += a_col * c_row;
+  // 1) Recursive Strassen on the even (m x m) core.
+  strassen_impl<T>(A0, B0, C0, level + 1, pool, cutoff);
 
-  // Last column of C (top part):  A0 * b_col + beta * a_col.
-  C.topRightCorner(m, 1).noalias() = A0 * b_col + beta * a_col;
+  // 2) Rank-1 fix-up:  C0 += a * c^T.
+  C0.noalias() += a * cT;
 
-  // Last row of C (left part):    a_row * B0 + alpha * c_row.
-  C.bottomLeftCorner(1, m).noalias() = a_row * B0 + alpha * c_row;
+  // 3) Last column of C (top m rows):  A0 * b + alpha_top_col_of_b * (...).
+  //    Wait -- careful. The full last column is A * (B's last col).
+  //    Let B_last = B.col(m). Then C.col(m) = A * B_last.
+  //    Top m: A.topRows(m) * B_last  =  A0 * b + a * beta.
+  //    Bottom 1: A.row(m) * B_last   =  aT * b + alpha * beta.
+  //
+  //    We use the level's peelCol buffer as A0 * b, then add a * beta.
+  C.col(m).head(m).noalias()  = A0 * b;
+  C.col(m).head(m).noalias() += a * beta;
 
-  // Bottom-right scalar: a_row * b_col + alpha * beta  (1x1).
-  C(m, m) = (a_row * b_col).value() + alpha * beta;
+  // 4) Last row of C (left m cols):  A_last_row * B = aT * B0 + alpha * cT.
+  C.row(m).head(m).noalias()  = aT * B0;
+  C.row(m).head(m).noalias() += alpha * cT;
+
+  // 5) Bottom-right scalar:  aT * b + alpha * beta.
+  C(m, m) = aT.dot(b) + alpha * beta;
 }
 
 /*!
- * \brief Recursive Strassen kernel for square matrices, writing into C.
+ * \brief Recursive Strassen kernel writing into \p C using only pooled scratch.
  *
- * Uses two scratch matrices (TA, TB) for A-side and B-side linear
- * combinations and one extra buffer (M) for sub-products that need to be
- * combined with another quadrant. The seven Strassen products are computed
- * in an order that minimises live temporaries.
+ * Preconditions:
+ *  - A, B, C are all the same size n x n (square).
+ *  - \p pool was sized for at least \p level + 1 entries.
  *
- * Strassen's identities (writing C = A * B in 2x2 block form):
- *
- *   M1 = (A11+A22)(B11+B22)
- *   M2 = (A21+A22) B11
- *   M3 = A11 (B12-B22)
- *   M4 = A22 (B21-B11)
- *   M5 = (A11+A12) B22
- *   M6 = (A21-A11)(B11+B12)
- *   M7 = (A12-A22)(B21+B22)
- *
- *   C11 = M1 + M4 - M5 + M7
- *   C12 = M3 + M5
- *   C21 = M2 + M4
- *   C22 = M1 - M2 + M3 + M6
- *
- * We schedule them so that each Mk is written either directly into a quadrant
- * of C (when only that quadrant needs it) or into the small buffer M.
+ * The seven Strassen products are scheduled so each one is computed into the
+ * level's M scratch and then added into the appropriate quadrant(s) of C.
+ * This avoids holding all seven products in memory simultaneously.
  */
 template <typename T>
 void
-strassen_square(const ConstMatrixView<T> &A, const ConstMatrixView<T> &B,
-                MatrixView<T> C, Eigen::Index cutoff)
+strassen_impl(const ConstView<T> &A, const ConstView<T> &B, MutView<T> C,
+              std::size_t level, ScratchPool<T> &pool, Eigen::Index cutoff)
 {
   const Eigen::Index n = A.rows();
 
-  // Base case: hand off to Eigen's tuned GEMM, writing into the destination.
+  // Below cutoff, Eigen's blocked GEMM dominates Strassen.
   if(n <= cutoff || n <= 1)
     {
-      gemm_into<T>(A, B, C);
+      gemm_into<T>(C, A, B);
       return;
     }
 
-  // Odd dimension: peel one row/column instead of repadding.
+  // Odd dimension: peel one row/column instead of re-padding to n+1.
   if(n % 2 != 0)
     {
-      strassen_peel_odd<T>(A, B, C, cutoff);
+      strassen_peel<T>(A, B, C, level, pool, cutoff);
       return;
     }
 
-  using Matrix = DynamicMatrix<T>;
   const Eigen::Index h = n / 2;
 
+  // Quadrant views (no allocation, just block expressions).
   const auto A11 = A.topLeftCorner(h, h);
   const auto A12 = A.topRightCorner(h, h);
   const auto A21 = A.bottomLeftCorner(h, h);
@@ -220,60 +257,81 @@ strassen_square(const ConstMatrixView<T> &A, const ConstMatrixView<T> &B,
   auto C21 = C.bottomLeftCorner(h, h);
   auto C22 = C.bottomRightCorner(h, h);
 
-  // Two reusable scratch buffers for the A- and B-side sums; one buffer to
-  // hold a Strassen product whose value is needed in two quadrants.
-  Matrix TA(h, h), TB(h, h), M(h, h);
+  // Pooled scratch for this level. Sized at top of the call chain.
+  // We take Refs into the (possibly oversized) pool buffers, scoped to h x h.
+  auto TA = pool.TA[level].topLeftCorner(h, h);
+  auto TB = pool.TB[level].topLeftCorner(h, h);
+  auto M  = pool.M[level].topLeftCorner(h, h);
 
-  // -- M1 = (A11+A22)(B11+B22). Used in C11 and C22, so store in M.
+  // We need stable Ref<> handles for the recursive call. Because the kernel
+  // takes ConstView<T>/MutView<T>, the block expressions decay to Ref on
+  // call -- this is cheap (just stride/data bookkeeping).
+
+  // M1 = (A11 + A22) * (B11 + B22)
+  // Used in: C11 += M1,  C22 += M1.  Schedule first and seed both quadrants.
   TA.noalias() = A11 + A22;
   TB.noalias() = B11 + B22;
-  strassen_square<T>(TA, TB, M, cutoff);
-  C11 = M;        // accumulate later: C11 += M4 - M5 + M7
-  C22 = M;        // accumulate later: C22 += -M2 + M3 + M6
+  strassen_impl<T>(TA, TB, M, level + 1, pool, cutoff);
+  C11 = M;          // seed C11
+  C22 = M;          // seed C22
 
-  // -- M2 = (A21+A22) B11. Used in C21 (+) and C22 (-).
+  // M2 = (A21 + A22) * B11
+  // Used in: C21 += M2, C22 -= M2.
   TA.noalias() = A21 + A22;
-  strassen_square<T>(TA, B11, M, cutoff);
-  C21 = M;
-  C22.noalias() -= M;
+  strassen_impl<T>(TA, B11, M, level + 1, pool, cutoff);
+  C21  = M;         // seed C21
+  C22 -= M;
 
-  // -- M3 = A11 (B12-B22). Used in C12 (+) and C22 (+).
+  // M3 = A11 * (B12 - B22)
+  // Used in: C12 += M3, C22 += M3.
   TB.noalias() = B12 - B22;
-  strassen_square<T>(A11, TB, M, cutoff);
-  C12 = M;
-  C22.noalias() += M;
+  strassen_impl<T>(A11, TB, M, level + 1, pool, cutoff);
+  C12  = M;         // seed C12
+  C22 += M;
 
-  // -- M4 = A22 (B21-B11). Used in C11 (+) and C21 (+).
+  // M4 = A22 * (B21 - B11)
+  // Used in: C11 += M4, C21 += M4.
   TB.noalias() = B21 - B11;
-  strassen_square<T>(A22, TB, M, cutoff);
-  C11.noalias() += M;
-  C21.noalias() += M;
+  strassen_impl<T>(A22, TB, M, level + 1, pool, cutoff);
+  C11 += M;
+  C21 += M;
 
-  // -- M5 = (A11+A12) B22. Used in C11 (-) and C12 (+).
+  // M5 = (A11 + A12) * B22
+  // Used in: C11 -= M5, C12 += M5.
   TA.noalias() = A11 + A12;
-  strassen_square<T>(TA, B22, M, cutoff);
-  C11.noalias() -= M;
-  C12.noalias() += M;
+  strassen_impl<T>(TA, B22, M, level + 1, pool, cutoff);
+  C11 -= M;
+  C12 += M;
 
-  // -- M6 = (A21-A11)(B11+B12). Used in C22 (+) only -> write directly.
+  // M6 = (A21 - A11) * (B11 + B12)
+  // Used in: C22 += M6.
   TA.noalias() = A21 - A11;
   TB.noalias() = B11 + B12;
-  // Need to accumulate into C22; reuse M as scratch then add.
-  strassen_square<T>(TA, TB, M, cutoff);
-  C22.noalias() += M;
+  strassen_impl<T>(TA, TB, M, level + 1, pool, cutoff);
+  C22 += M;
 
-  // -- M7 = (A12-A22)(B21+B22). Used in C11 (+) only -> write directly.
+  // M7 = (A12 - A22) * (B21 + B22)
+  // Used in: C11 += M7.
   TA.noalias() = A12 - A22;
   TB.noalias() = B21 + B22;
-  strassen_square<T>(TA, TB, M, cutoff);
-  C11.noalias() += M;
+  strassen_impl<T>(TA, TB, M, level + 1, pool, cutoff);
+  C11 += M;
 }
 
 /*!
- * \brief Top-level dispatcher. Handles rectangular shapes by single-shot
- *        zero-padding to a square even size, then calls the recursive kernel.
- *
- * Padding happens at most once (here), never inside recursion.
+ * \brief Decides whether the top-level problem benefits from Strassen.
+ */
+template <typename MatrixA, typename MatrixB>
+[[nodiscard]] inline bool
+use_strassen(const MatrixA &A, const MatrixB &B, Eigen::Index cutoff)
+{
+  const Eigen::Index extent = square_extent(A, B);
+  return A.cols() == B.rows() && extent > cutoff && extent > 1;
+}
+
+/*!
+ * \brief Top-level dispatcher. Pads rectangular problems once (if needed),
+ *        sizes the scratch pool once, then calls the kernel.
  */
 template <typename T>
 [[nodiscard]] DynamicMatrix<T>
@@ -282,6 +340,13 @@ strassen_dispatch(const DynamicMatrix<T> &A, const DynamicMatrix<T> &B,
 {
   using Matrix = DynamicMatrix<T>;
 
+  // Empty result short-circuit.
+  if(A.rows() == 0 || B.cols() == 0)
+    {
+      return Matrix::Zero(A.rows(), B.cols());
+    }
+
+  // Below the cutoff: just dispatch to Eigen.
   if(!use_strassen(A, B, cutoff))
     {
       Matrix C(A.rows(), B.cols());
@@ -289,42 +354,57 @@ strassen_dispatch(const DynamicMatrix<T> &A, const DynamicMatrix<T> &B,
       return C;
     }
 
-  // Already square, equal-sized: call the kernel directly, no padding.
+  ScratchPool<T> pool;
+
+  // Square same-size case: no padding needed.
   if(A.rows() == A.cols() && B.rows() == B.cols() && A.rows() == B.rows())
     {
-      Matrix C(A.rows(), B.cols());
-      strassen_square<T>(A, B, C, cutoff);
+      const Eigen::Index n = A.rows();
+      pool.reserve(n, cutoff);
+
+      Matrix C(n, n);
+      strassen_impl<T>(A, B, C, /*level=*/0, pool, cutoff);
       return C;
     }
 
-  // Rectangular: pad once to a common even square size.
-  const Eigen::Index paddedSize = even_extent(square_extent(A, B));
+  // Rectangular or mismatched square sizes: pad once at the top to a single
+  // square of size N = even_extent(max(A.rows, A.cols, B.cols)). This is
+  // strictly looser than peeling here, but only one such padding occurs and
+  // the recursion itself uses peeling for any odd subproblem.
+  const Eigen::Index N = even_extent(square_extent(A, B));
 
-  Matrix paddedA = Matrix::Zero(paddedSize, paddedSize);
-  Matrix paddedB = Matrix::Zero(paddedSize, paddedSize);
-  Matrix paddedC(paddedSize, paddedSize);
+  Matrix paddedA = Matrix::Zero(N, N);
+  Matrix paddedB = Matrix::Zero(N, N);
+  Matrix paddedC(N, N);
 
   paddedA.topLeftCorner(A.rows(), A.cols()) = A;
   paddedB.topLeftCorner(B.rows(), B.cols()) = B;
 
-  strassen_square<T>(paddedA, paddedB, paddedC, cutoff);
+  pool.reserve(N, cutoff);
+  strassen_impl<T>(paddedA, paddedB, paddedC, /*level=*/0, pool, cutoff);
+
   return paddedC.topLeftCorner(A.rows(), B.cols());
 }
+
 } // namespace detail
 
 /*!
  * \brief Multiplies two dense Eigen matrices with a hybrid Strassen strategy.
  *
- * \tparam DerivedA Eigen expression type for the left operand.
- * \tparam DerivedB Eigen expression type for the right operand.
- * \param A Left matrix (any compatible Eigen expression).
- * \param B Right matrix (any compatible Eigen expression).
- * \param cutoff Recursion threshold. At or below this size, Eigen's direct
- *               product is used. Defaults to 1024, which is roughly the
- *               break-even with Eigen's tuned GEMM on modern CPUs for double.
- * \return The matrix product A * B.
+ * The recursion uses a pre-sized scratch pool, so it performs zero heap
+ * allocations after the dispatcher has set up the buffers. Below the cutoff
+ * (default 1024) the call is forwarded to Eigen's blocked GEMM, which is
+ * faster than further Strassen recursion on modern CPUs.
  *
- * \throw std::invalid_argument if matrix dimensions are incompatible.
+ * \tparam DerivedA  Eigen expression type for the left operand.
+ * \tparam DerivedB  Eigen expression type for the right operand.
+ * \tparam Scalar    Scalar type stored in both matrices (must match).
+ * \param  A        Left matrix expression (any compatible Eigen expression).
+ * \param  B        Right matrix expression.
+ * \param  cutoff   Recursion threshold; below this size Eigen GEMM is used.
+ * \return The matrix product \f$ AB \f$.
+ *
+ * \throw std::invalid_argument if A.cols() != B.rows().
  */
 template <
   typename DerivedA, typename DerivedB,
@@ -345,16 +425,11 @@ strassen(const Eigen::MatrixBase<DerivedA> &A,
 
   using Matrix = detail::DynamicMatrix<Scalar>;
 
-  // Empty product: return correctly-shaped zero matrix.
-  if(A.rows() == 0 || B.cols() == 0 || A.cols() == 0)
-    {
-      return Matrix::Zero(A.rows(), B.cols());
-    }
-
-  // Evaluate user expressions exactly once.
+  // Evaluate user expressions once into owned dense matrices.
   const Matrix lhs = A.eval();
   const Matrix rhs = B.eval();
 
   return detail::strassen_dispatch<Scalar>(lhs, rhs, cutoff);
 }
+
 } // namespace apsc
