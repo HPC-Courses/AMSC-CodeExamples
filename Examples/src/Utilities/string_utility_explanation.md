@@ -27,7 +27,7 @@ The `string_utility.hpp` file provides a collection of utilities for string mani
    - Supports efficient file reading and provides access to the buffer for further processing.
 
 6. **String Processing Utilities**
-   - `chop`: Splits a string stream into a vector of strings, one for each line.
+   - `chop`: Splits a text stream into a vector of strings, one for each line.
    - `stringDistance`: Computes the Levenshtein distance between two strings, which measures the number of edits required to transform one string into another.
 
 ### Example Usage

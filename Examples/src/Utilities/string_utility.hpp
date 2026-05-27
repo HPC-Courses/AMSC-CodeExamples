@@ -21,13 +21,12 @@ namespace Utility
 {
 //! Trims leading whitespace from a string.
 /**
-   @param sin The input string.
+   @param s The input string.
    @return A copy of the string with leading whitespace removed.
  */
 inline std::string
-ltrim(std::string sin)
+ltrim(std::string s)
 {
-  auto        s = std::move(sin);
   auto const &loc = std::locale();
   s.erase(s.begin(), std::find_if(s.begin(), s.end(),
                                   [&loc](std::string::const_reference c) {
@@ -38,13 +37,12 @@ ltrim(std::string sin)
 
 //! Trims trailing whitespace from a string.
 /**
-   @param sin The input string.
+   @param s The input string.
    @return A copy of the string with trailing whitespace removed.
  */
 inline std::string
-rtrim(std::string sin)
+rtrim(std::string s)
 {
-  auto        s = std::move(sin);
   auto const &loc = std::locale();
   s.erase(std::find_if(s.rbegin(), s.rend(),
                        [&loc](std::string::const_reference c) {
@@ -61,7 +59,7 @@ rtrim(std::string sin)
    @return A copy of the string with leading and trailing whitespace removed.
  */
 inline std::string
-trim(std::string s)
+trim(std::string const &s)
 {
   return ltrim(rtrim(s));
 }
