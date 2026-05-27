@@ -77,8 +77,11 @@ The implementation follows a hybrid strategy:
 
 - it evaluates the input expressions once into owned dense matrices;
 - it uses Eigen's direct product as the base kernel;
-- it applies Strassen recursion only for square, equal-size, even-dimension
-  matrices larger than the cutoff.
+- it applies Strassen recursion when the square problem obtained by padding is
+  larger than the cutoff;
+- it handles odd and rectangular compatible products by zero-padding the
+  operands to a square size, running the recursive kernel, and cropping the
+  result back to the requested shape.
 
 This is an important design choice. For many sizes, the fastest code path is
 still simply:
@@ -87,8 +90,10 @@ still simply:
 C.noalias() = A * B;
 ```
 
-Therefore this example is best read as a performance study rather than as a
-universal replacement for Eigen multiplication.
+The padding makes the algorithm more general, but it can also add work and
+temporary storage, especially for very rectangular matrices. Therefore this
+example is best read as a performance study rather than as a universal
+replacement for Eigen multiplication.
 
 ## How to Compile the Benchmark
 

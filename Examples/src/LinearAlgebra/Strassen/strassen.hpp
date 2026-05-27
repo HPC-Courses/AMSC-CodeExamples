@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Eigen/Dense>
+#include <algorithm>
 #include <stdexcept>
 #include <type_traits>
 
@@ -32,18 +33,55 @@ gemm(const DynamicMatrix<T> &A, const DynamicMatrix<T> &B)
 }
 
 /*!
- * \brief Decides whether a subproblem is suitable for Strassen recursion.
+ * \brief Returns the square size needed to embed a compatible product.
  *
- * The implementation applies Strassen only to even-sized square matrices of
- * the same dimension and only above the chosen cutoff.
+ * Strassen's standard identities are written for square blocks. Rectangular
+ * products are therefore embedded in a square zero-padded product and cropped
+ * back to the requested shape.
+ */
+template <typename T>
+[[nodiscard]] inline Eigen::Index
+square_extent(const DynamicMatrix<T> &A, const DynamicMatrix<T> &B)
+{
+  return std::max(A.rows(), std::max(A.cols(), B.cols()));
+}
+
+//! Returns n itself when even, otherwise the next even integer.
+[[nodiscard]] inline Eigen::Index
+even_extent(Eigen::Index n)
+{
+  return n + (n % 2);
+}
+
+/*!
+ * \brief Decides whether a product is large enough for Strassen recursion.
+ *
+ * Odd or rectangular shapes are handled by zero-padding before the recursive
+ * square kernel is called. Very small products still use Eigen's direct
+ * product to avoid recursive overhead.
  */
 template <typename T>
 [[nodiscard]] inline bool
 use_strassen(const DynamicMatrix<T> &A, const DynamicMatrix<T> &B,
              Eigen::Index cutoff)
 {
+  const Eigen::Index extent = square_extent(A, B);
+  return A.cols() == B.rows() && extent > cutoff && extent > 1;
+}
+
+/*!
+ * \brief Decides whether a square subproblem should be recursively split.
+ *
+ * The dimension may be odd; \ref strassen_impl pads odd square subproblems by
+ * one row and one column before forming equal-sized quadrants.
+ */
+template <typename T>
+[[nodiscard]] inline bool
+use_square_strassen(const DynamicMatrix<T> &A, const DynamicMatrix<T> &B,
+                    Eigen::Index cutoff)
+{
   return A.rows() == A.cols() && B.rows() == B.cols() && A.rows() == B.rows() &&
-         (A.rows() % 2 == 0) && A.rows() > cutoff;
+         A.rows() > cutoff && A.rows() > 1;
 }
 
 /*!
@@ -62,13 +100,27 @@ strassen_impl(const DynamicMatrix<T> &A, const DynamicMatrix<T> &B,
 {
   // For small or unsuitable problems, Eigen's blocked GEMM is the better
   // kernel and avoids recursive overhead.
-  if(!use_strassen(A, B, cutoff))
+  if(!use_square_strassen(A, B, cutoff))
     {
       return gemm(A, B);
     }
 
   using Matrix = DynamicMatrix<T>;
   const Eigen::Index n = A.rows();
+
+  if(n % 2 != 0)
+    {
+      const Eigen::Index paddedSize = n + 1;
+      Matrix             paddedA = Matrix::Zero(paddedSize, paddedSize);
+      Matrix             paddedB = Matrix::Zero(paddedSize, paddedSize);
+
+      paddedA.topLeftCorner(n, n) = A;
+      paddedB.topLeftCorner(n, n) = B;
+
+      Matrix paddedC = strassen_impl(paddedA, paddedB, cutoff);
+      return paddedC.topLeftCorner(n, n);
+    }
+
   const Eigen::Index h = n / 2;
 
   // Split both operands into four equally-sized quadrants.
@@ -121,6 +173,42 @@ strassen_impl(const DynamicMatrix<T> &A, const DynamicMatrix<T> &B,
 
   return C;
 }
+
+/*!
+ * \brief Embeds any compatible product into a square Strassen product.
+ *
+ * The recursive kernel only sees square matrices. This wrapper zero-pads the
+ * operands when their shape is rectangular or odd-sized, then crops the
+ * resulting product back to \f$A.rows() \times B.cols()\f$.
+ */
+template <typename T>
+[[nodiscard]] DynamicMatrix<T>
+strassen_with_padding(const DynamicMatrix<T> &A, const DynamicMatrix<T> &B,
+                      Eigen::Index cutoff)
+{
+  if(!use_strassen(A, B, cutoff))
+    {
+      return gemm(A, B);
+    }
+
+  using Matrix = DynamicMatrix<T>;
+
+  if(A.rows() == A.cols() && B.rows() == B.cols() && A.rows() == B.rows())
+    {
+      return strassen_impl(A, B, cutoff);
+    }
+
+  const Eigen::Index paddedSize = even_extent(square_extent(A, B));
+
+  Matrix paddedA = Matrix::Zero(paddedSize, paddedSize);
+  Matrix paddedB = Matrix::Zero(paddedSize, paddedSize);
+
+  paddedA.topLeftCorner(A.rows(), A.cols()) = A;
+  paddedB.topLeftCorner(B.rows(), B.cols()) = B;
+
+  Matrix paddedC = strassen_impl(paddedA, paddedB, cutoff);
+  return paddedC.topLeftCorner(A.rows(), B.cols());
+}
 } // namespace detail
 
 /*!
@@ -130,8 +218,8 @@ strassen_impl(const DynamicMatrix<T> &A, const DynamicMatrix<T> &B,
  * into owned dense matrices, and then either:
  *
  * - dispatches directly to Eigen's optimized product, or
- * - applies Strassen recursion when the matrices are large enough and have a
- *   suitable square even-sized shape.
+ * - applies Strassen recursion when the padded square problem is larger than
+ *   the chosen cutoff.
  *
  * \tparam DerivedA Eigen expression type for the left operand.
  * \tparam DerivedB Eigen expression type for the right operand.
@@ -168,12 +256,6 @@ strassen(const Eigen::MatrixBase<DerivedA> &A,
   const Matrix lhs = A.eval();
   const Matrix rhs = B.eval();
 
-  // Only large, even-sized square problems are handed to the recursive path.
-  if(!detail::use_strassen(lhs, rhs, cutoff))
-    {
-      return detail::gemm(lhs, rhs);
-    }
-
-  return detail::strassen_impl(lhs, rhs, cutoff);
+  return detail::strassen_with_padding(lhs, rhs, cutoff);
 }
 } // namespace apsc
