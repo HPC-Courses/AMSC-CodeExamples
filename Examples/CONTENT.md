@@ -119,6 +119,7 @@ The collection is broad, but most folders fall into one of these groups:
 
 ## Numerical and Scientific-Computing Examples
 
+- `autodiff` : some examples of the use of forward and reverse automatic differentiation with autodiff
 - `Derivatives`: finite-difference approximations of derivatives.
 - `FixedPointSolver`: fixed-point solvers and acceleration strategies.
 - `HeatExchange`: one-dimensional finite-element example.
