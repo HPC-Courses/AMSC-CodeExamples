@@ -133,6 +133,7 @@ The collection is broad, but most folders fall into one of these groups:
   utilities.
 - `MyMat0`: matrix-class experiments, including views and traits.
 - `NewtonSolver`: Newton and quasi-Newton methods for nonlinear equations.
+- `NewtonSOlverAutodiff`: Version of Newton solver using automatic differentiation
 - `NonLinSys`: examples on nonlinear systems.
 - `PointInSimplex`: point location in 2D and 3D simplices.
 - `Polynomials`: generic polynomial class and related operations.
