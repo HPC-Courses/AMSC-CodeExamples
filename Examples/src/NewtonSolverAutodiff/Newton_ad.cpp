@@ -5,6 +5,11 @@
 
 namespace
 {
+/*!
+ * \brief Extract the values from a vector of autodiff::Real numbers.
+ * \param x The vector of autodiff::Real numbers.
+ * \return A vector of double values.
+ */
 Eigen::VectorXd
 values(const autodiff::VectorXreal &x)
 {
@@ -28,8 +33,9 @@ apsc::newton_ad::Newton::solve(const ArgumentType &x0)
   currentStepLength = std::numeric_limits<double>::max();
 
   auto evaluate = [this](const ArgumentType &x, JacobianMatrixType &jacobian) {
-    AutoDiffArgumentType xad = x;
-    AutoDiffReturnType   residual;
+    AutoDiffArgumentType xad = x; // here is where we convert the standard Eigen
+                                  // vector to autodiff::VectorXreal
+    AutoDiffReturnType residual;
     autodiff::jacobian(nonLinSys, autodiff::wrt(xad), autodiff::at(xad),
                        residual, jacobian);
     return values(residual);

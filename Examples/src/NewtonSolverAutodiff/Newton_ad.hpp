@@ -78,7 +78,15 @@ namespace newton_ad
      * \brief Solve the non linear system.
      * \param x0 The initial guess for the solution.
      * \return The result of the Newton iteration.
-     */
+     * \note The solve takes the initial guess as a standard Eigen vector, and
+     * returns the solution as a standard Eigen vector. The non linear system is
+     * expected instead to take and return autodiff::VectorXreal. This has een
+     * done to simplify the interface of the Newton solver, and to reduce the
+     * exposition of the autodiff types to the user. The user is expected to
+     * write the non linear system using autodiff::VectorXreal, and to use the
+     * Newton solver with standard Eigen vectors. The Newton solver will convert
+     * the standard Eigen vectors to autodiff::VectorXreal, and will convert the
+     * autodiff::VectorXreal to standard Eigen vectors.     */
     [[nodiscard]] NewtonResult solve(const ArgumentType &x0);
     virtual ~Newton() = default;
 
