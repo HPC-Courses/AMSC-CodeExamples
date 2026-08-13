@@ -31,6 +31,7 @@ CPPFLAGS+=-DVERBOSE
 SRCS=$(wildcard *.cpp)
 # get the corresponding object file
 OBJS = $(SRCS:.cpp=.o)
+OBJS := $(filter-out test_gradientAD.o, $(OBJS))
 # get all headers in the working directory
 HEADERS=$(wildcard *.hpp)
 #
@@ -42,10 +43,10 @@ EXEC=$(exe_sources:.cpp=)
 
 .DEFAULT_GOAL = all
 
-all: $(DEPEND) $(EXEC)
+all: $(DEPEND) $(EXEC) test_gradientAD
 
 clean:
-	$(RM) -f $(EXEC) $(OBJS)
+	$(RM) -f $(EXEC) $(OBJS) test_gradientAD test_gradientAD.o
 
 distclean:
 	$(MAKE) clean
@@ -57,6 +58,9 @@ doc:
 
 $(EXEC): $(OBJS)
 
+test_gradientAD.o:  test_gradientAD.cpp GradientsAD.hpp
+
+test_gradientAD: test_gradientAD.o
 
 $(DEPEND): $(SRCS)
 	$(RM) $(DEPEND)
