@@ -1,0 +1,3 @@
+exclude:
+  - Examples/src/pybind11/pybind11_examples
+  
