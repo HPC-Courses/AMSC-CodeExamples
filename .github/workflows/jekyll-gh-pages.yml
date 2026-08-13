@@ -37,8 +37,8 @@ jobs:
           destination: ./_site
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v6
-	with:
-	  path: ./_site
+        with:
+          path: ./_site
 
   # Deployment job
   deploy:
