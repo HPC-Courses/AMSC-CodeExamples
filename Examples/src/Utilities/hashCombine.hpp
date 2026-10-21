@@ -32,23 +32,24 @@ namespace apsc
  * @code
  * struct MyHash
  * {
- *   std::size_t operator()(MyClass const & x) const
+ *   std::size_t operator()(MyClass const & x) const noexcept
  *   {
- *       std::size_t seed=0u;
- *       apsc::hash_combine(seed,x.firstmember,x.secondmember,x.thirdmember);
- *       return seed;
+ *       std::size_t seed = 0u;
+ *       return apsc::hash_combine(seed,x.firstmember,x.secondmember,x.thirdmember);
+ *
  *   }
  * };
  * @endcode
  */
 #if __cplusplus >= 201703L
 template <typename T, typename... Rest>
-void
+auto
 hash_combine(std::size_t &seed, const T &v, const Rest &...rest)
 {
   std::hash<T> hasher;
   seed ^= hasher(v) + 0x9e3779b97f4a7c15 + (seed << 6) + (seed >> 2);
   (hash_combine(seed, rest), ...);
+  return seed;
 }
 #else
 /*!
@@ -56,7 +57,7 @@ hash_combine(std::size_t &seed, const T &v, const Rest &...rest)
  *
  */
 template <typename T, typename... Rest>
-inline void
+auto
 hash_combine(std::size_t &seed, T const &v, Rest const &...rest)
 {
   std::hash<T> hasher;
@@ -64,8 +65,9 @@ hash_combine(std::size_t &seed, T const &v, Rest const &...rest)
   // Trick to expand the parameter pack and call hashCombine for each argument
   // in C++11/14. The dummy array 'i' ensures that each call to hashCombine is
   // evaluated, and (void)(i) suppresses unused variable warnings.
-  int i[] = {0, (hashCombine(seed, rest), 0)...};
+  auto i[] = {0, (hashCombine(seed, rest), 0)...};
   (void)(i);
+  return seed;
 }
 #endif
 } // namespace apsc

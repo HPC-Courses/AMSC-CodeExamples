@@ -158,6 +158,9 @@ struct Poset
 
     return po::greater;
   }
+  // Having defined <=>, we can default == to be consistent with the equivalence induced by the ordering: 
+  // two vectors  are equal if they have the same size and the same elements.
+  bool operator==(Poset const &r2) const = default;
 };
 
 int

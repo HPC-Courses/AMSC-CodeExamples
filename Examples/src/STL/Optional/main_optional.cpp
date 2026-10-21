@@ -3,7 +3,9 @@
 #include <fstream>
 #include <iostream>
 #include <optional>
+#include <string>
 #include <vector>
+#include <map>
 
 //! function templates that counts valid optionals in a vector an prints the
 //! valid values
@@ -33,6 +35,18 @@ countValid(V const &v)
         std::cout << *x << " ";
       }
   std::cout << std::endl;
+}
+std::string content(std::optional<double> const &x)
+{
+  // an example of use of or_else and value_or  and_then
+  // if values is set string contains "set" otherwise "unset"
+  // This can be done with just an if, ut is a nice example 
+  // of how to use the new methods of std::optional
+  std::string s = x.and_then([]([[maybe_unused]] double const & v) {
+                      return std::optional<std::string>("set");
+                    })
+                      .value_or("unset");
+  return s;
 }
 int
 main()
@@ -69,9 +83,30 @@ main()
     {
       std::cout << "v[2] stores no value" << std::endl;
     }
+
   std::cout << " Now reading from file\n";
   using namespace apsc::optionalExample;
   std::ifstream file("data.txt");
   auto          values = apsc::optionalExample::readValues(file);
+  for (int i=0; auto const &x : values)
+    {
+      std::cout << "value " << i << " is " << content(x) << "\n";
+      ++i;
+    }
   std::cout << values;
+ // extract the set values in values and insert them in a map<std::size_t,double> containing the index and 
+// the value. I use  and_then to do this in a single statement. Note that and_then must return 
+// an optional, which here is a dummy optional<bool> that is not used. 
+// The lambda captures the map by reference and the index by value.
+
+  std::map<std::size_t,double> m;
+  for (std::size_t i=0; i<values.size(); ++i)
+    {
+      values[i].and_then([&m,i](double const &v) { m[i] = v; return std::optional<bool>{true}; });
+    }
+  std::cout << "The map contains:\n";
+  for (auto const &p : m)
+    {
+      std::cout << "index " << p.first << " value " << p.second << "\n";
+    }
 }
