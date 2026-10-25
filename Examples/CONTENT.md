@@ -126,7 +126,7 @@ The collection is broad, but most folders fall into one of these groups:
 - `Parallel/OpenMP`: shared-memory examples with OpenMP.
 - `Parallel/ParallelSTL`: C++ standard-library parallel algorithms.
 - `Parallel/Utilities`: helper code used by some parallel examples.
-
+- `Parallel/thrust`: examples for the use of the `thrust` library for gpu programming
 ## Numerical and Scientific-Computing Examples
 
 - `autodiff` : some examples of the use of forward and reverse automatic differentiation with autodiff

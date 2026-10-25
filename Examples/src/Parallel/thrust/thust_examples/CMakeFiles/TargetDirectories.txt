@@ -1,0 +1,4 @@
+/home/forma/Dropbox/Work/ScientificComputing/sandbox/C++/thrust/thust_examples/CMakeFiles/edit_cache.dir
+/home/forma/Dropbox/Work/ScientificComputing/sandbox/C++/thrust/thust_examples/CMakeFiles/rebuild_cache.dir
+/home/forma/Dropbox/Work/ScientificComputing/sandbox/C++/thrust/thust_examples/cuda/CMakeFiles/edit_cache.dir
+/home/forma/Dropbox/Work/ScientificComputing/sandbox/C++/thrust/thust_examples/cuda/CMakeFiles/rebuild_cache.dir

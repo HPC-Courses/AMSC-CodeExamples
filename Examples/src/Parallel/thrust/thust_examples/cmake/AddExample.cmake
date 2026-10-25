@@ -1,0 +1,32 @@
+function(add_teaching_example name)
+  set_property(GLOBAL APPEND PROPERTY teaching_available "${name}")
+  if(NOT THRUST_EXAMPLES STREQUAL "all" AND NOT name IN_LIST THRUST_EXAMPLES)
+    return()
+  endif()
+  set(sources)
+  foreach(source IN LISTS ARGN)
+    if(NOT THRUST_BACKEND STREQUAL "CUDA" AND source MATCHES "\\.cu$")
+      # A wrapper lets any C++ compiler compile .cu input without CUDA tooling.
+      get_filename_component(stem "${source}" NAME_WE)
+      set(wrapper "${CMAKE_CURRENT_BINARY_DIR}/${name}_${stem}.cpp")
+      file(WRITE "${wrapper}" "#include \"${PROJECT_SOURCE_DIR}/include/host_device.h\"\n#include \"${source}\"\n")
+      list(APPEND sources "${wrapper}")
+    else()
+      list(APPEND sources "${source}")
+    endif()
+  endforeach()
+  add_executable(${name} ${sources})
+  target_link_libraries(${name} PRIVATE teaching_thrust)
+  target_include_directories(${name} PRIVATE "${PROJECT_SOURCE_DIR}")
+  set_target_properties(${name} PROPERTIES
+    CXX_STANDARD 17 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO
+    CUDA_STANDARD 17 CUDA_STANDARD_REQUIRED YES CUDA_EXTENSIONS NO)
+  if(THRUST_BACKEND STREQUAL "CUDA")
+    set_target_properties(${name} PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
+    target_compile_options(${name} PRIVATE
+      $<$<COMPILE_LANG_AND_ID:CUDA,NVIDIA>:--extended-lambda>)
+    target_compile_definitions(${name} PRIVATE
+      $<$<COMPILE_LANG_AND_ID:CUDA,NVIDIA>:THRUST_EXAMPLE_DEVICE_SIDE>)
+  endif()
+  add_dependencies(examples ${name})
+endfunction()

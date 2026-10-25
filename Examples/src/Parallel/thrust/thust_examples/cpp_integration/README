@@ -1,0 +1,15 @@
+This example links host.cpp and device.cu into the cpp_integration executable.
+From the parent directory, configure the standalone CMake project as described
+in README.md, then run:
+
+  cmake --build build-cpu --target cpp_integration
+  ./build-cpu/bin/cpp_integration
+
+With THRUST_BACKEND=CUDA, device.cu is compiled by the CUDA compiler, and
+host.cpp by the C++ compiler. With CPP, OMP, or TBB, both use the CPU backend;
+a generated C++ wrapper makes device.cu usable by an ordinary C++ compiler.
+
+Recent CCCL releases include CUDA architectures in their ABI namespace.
+For CUDA builds, CMake generates wrappers that place Thrust and CUB in the
+same private namespace in both translation units, avoiding a host/device
+linkage mismatch while retaining separate C++ and CUDA compilation.

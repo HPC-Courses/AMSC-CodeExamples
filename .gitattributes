@@ -6,4 +6,5 @@
 *.pdf binary
 *.dll binary
 *.odt binary
-
+*.zip binary
+*.tgz binary
