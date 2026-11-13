@@ -236,6 +236,14 @@ main(int argc, char **argv)
     }
 
   MPI_Barrier(mpi_comm);
+  // This trick is to ensure that the output of the timings is printed in order
+  // of rank, which makes it easier to read and compare the timings across
+  // ranks. The trick is to have each rank wait for the previous rank to finish
+  // printing its timing before it prints its own timing. This is done by having
+  // each rank call MPI_Barrier and then check if it is its turn to print. If it
+  // is, it prints its timing and then calls MPI_Barrier again to signal the
+  // next rank that it can print. If it is not its turn, it just calls
+  // MPI_Barrier and waits for the next rank to finish printing.
   for(int rank = 0; rank < mpi_size; ++rank)
     {
       if(rank == mpi_rank && mpi_rank == 0)

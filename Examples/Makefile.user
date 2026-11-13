@@ -137,7 +137,7 @@ else
   # But here I want to avoid students messing around with LD_LIBRARY_PATH
   # or ldconfig.
   LDFLAGS=-Wl,-rpath=. -Wl,-rpath=$(PACS_ROOT)/lib#
-  OPTFLAGS=-O3 -funroll-loops #maybe you want -O3
+  OPTFLAGS=-O3 -funroll-loops -march=native #maybe you want -O3
   DEFINES+=-DNDEBUG
 endif
 # Add verbosity if needed

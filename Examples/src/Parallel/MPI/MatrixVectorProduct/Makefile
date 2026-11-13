@@ -15,18 +15,17 @@
 
 MAKEFILEH_DIR=../../../../
 #
+DEBUG=NO
 include $(MAKEFILEH_DIR)/Makefile.inc
 #
 # You may have an include file also in the current directory
 #
 -include Makefile.inc
-
 #
 # The general setting is as follows:
 # mains are identified bt main_XX.cpp
 # all other files are XX.cpp
 #
-
 # get all files *.cpp
 SRCS=$(wildcard *.cpp)
 # get the corresponding object file
