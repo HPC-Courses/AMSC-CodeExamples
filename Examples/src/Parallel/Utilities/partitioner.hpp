@@ -9,6 +9,7 @@
 #define AMSC_EXAMPLES_EXAMPLES_SRC_PARALLEL_UTILITIES_PARTITIONER_HPP_
 #include <algorithm>
 #include <array>
+#include <tuple>
 #include <type_traits>
 #include <vector>
 namespace apsc
@@ -196,7 +197,7 @@ concept PartitionerType = requires(T t) {
  * displacements as needed for MPI gatherv or scatterv routines
  * @tparam Partitioner The type of a partitioner
  * @param partitioner The partitioner
- * @return An array with counts and displacements. in vectors of int because
+ * @return A pair with counts and displacements. in vectors of int because
  * this is what MPI wants!
  */
 #if __cplusplus >= 202002L
@@ -206,7 +207,7 @@ template <class Partitioner>
 #endif
 auto
 counts_and_displacements(Partitioner const &partitioner)
-  -> std::array<std::vector<int>, 2>
+  -> std::pair<std::vector<int>, std::vector<int>>
 {
   auto             num_tasks = partitioner.get_NumTasks();
   std::vector<int> counts;

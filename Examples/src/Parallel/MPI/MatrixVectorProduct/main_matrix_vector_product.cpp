@@ -10,6 +10,7 @@
 #include <iomanip>
 #include <iostream>
 #include <random>
+#include <tuple>
 #include <vector>
 // #include <mdspan> if you want to use mdspan, which is a C++23 feature that
 // allows for multi-dimensional array views
@@ -58,6 +59,8 @@ main(int argc, char **argv)
     std::cout << "Number of processes: " << mpi_size << std::endl;
 
   // Set to true to print matrix, vector and result.
+  // only for debug purposes, as printing large matrices and vectors is not
+  // practical.
   const bool print = false;
 
   unsigned int n_rows;
@@ -125,6 +128,10 @@ main(int argc, char **argv)
 
   std::vector<double> result_local(n_rows_local, 0.0);
 
+  std::vector<int> send_counts;
+  std::vector<int> send_start_idx;
+  std::vector<int> recv_counts;
+  std::vector<int> recv_start_idx;
   if(mpi_rank == 0)
     {
       tic();
@@ -162,7 +169,7 @@ main(int argc, char **argv)
           std::cout << std::endl;
         }
 
-      // Generate rhs filling it with ones in parallel using OpenMP.
+        // Generate rhs filling it with ones in parallel using OpenMP.
 #pragma omp parallel for shared(rhs) num_threads(num_threads) schedule(static)
       for(std::size_t i = 0; i < rhs.size(); ++i)
         rhs[i] = 1.0;
@@ -179,13 +186,13 @@ main(int argc, char **argv)
       std::cout << std::endl;
       toc("Assemble matrix: time elapsed on rank " + std::to_string(mpi_rank) +
           ": ");
+      // counts and displacements are in the scope of rank 0,
+      // as they are only needed for the MPI_Scatterv and MPI_Gatherv calls.
+      std::tie(send_counts, send_start_idx) =
+        apsc::counts_and_displacements(partitionMatrix);
+      std::tie(recv_counts, recv_start_idx) =
+        apsc::counts_and_displacements(partitionVector);
     }
-
-  // Keep counts and displacements in scope for the MPI collectives.
-  auto [send_counts, send_start_idx] =
-    apsc::counts_and_displacements(partitionMatrix);
-  auto [recv_counts, recv_start_idx] =
-    apsc::counts_and_displacements(partitionVector);
 
   tic();
   MPI_Bcast(rhs.data(), rhs.size(), MPI_DOUBLE, 0, mpi_comm);
