@@ -40,24 +40,26 @@ main(int argc, char **argv)
 
   for(unsigned int i = 0; i < num_iterations; ++i)
     {
+      // Tag is not necessary in this example, but it is used to show how to differentiate messages.
+      // In a more complex scenario, the tag could be used to indicate the type of message.
+      auto tag = i;
       if(mpi_rank == ping_pong_count % 2)
         {
           ++ping_pong_count;
-
-          MPI_Send(&ping_pong_count, 1, MPI_INT, partner_rank, 0, mpi_comm);
+          MPI_Send(&ping_pong_count, 1, MPI_INT, partner_rank, tag, mpi_comm);
 
           std::cout << "Ping! Rank " << mpi_rank << " ---> rank "
-                    << partner_rank << " (count = " << ping_pong_count << ")."
+                    << partner_rank << " (tag = " << tag << ", count = " << ping_pong_count << ")."
                     << std::endl;
         }
       else
         {
-          MPI_Recv(&ping_pong_count, 1, MPI_INT, partner_rank, 0, mpi_comm,
+          MPI_Recv(&ping_pong_count, 1, MPI_INT, partner_rank, tag, mpi_comm,
                    &status);
 
           // "status.MPI_SOURCE" equals "partner_rank".
           std::cout << "Pong! Rank " << mpi_rank << " <--- rank "
-                    << status.MPI_SOURCE << " (count = " << ping_pong_count
+                    << status.MPI_SOURCE << " (tag = " << status.MPI_TAG << ", count = " << ping_pong_count
                     << ")." << std::endl;
         }
     }

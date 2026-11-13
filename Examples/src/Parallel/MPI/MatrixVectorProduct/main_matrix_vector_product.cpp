@@ -5,12 +5,16 @@
 #include <omp.h>
 #pragma GCC diagnostic pop
 
+#include <../../Utilities/partitioner.hpp>
 #include <algorithm>
 #include <iomanip>
 #include <iostream>
 #include <random>
 #include <vector>
-
+// #include <mdspan> if you want to use mdspan, which is a C++23 feature that
+// allows for multi-dimensional array views
+//  See https://en.cppreference.com/w/cpp/experimental/mdspan for more
+//  information.
 static double c_start, c_diff;
 #define tic() c_start = MPI_Wtime();
 #define toc(x)                                       \
@@ -72,7 +76,7 @@ main(int argc, char **argv)
   // processor and the offset index where to start writing them into.
   std::vector<int> recv_counts;
   std::vector<int> recv_start_idx;
-  int num_threads;
+  int              num_threads;
   if(mpi_rank == 0)
     {
       std::cout << std::endl << "Enter the number of matrix rows:" << std::endl;
@@ -100,10 +104,9 @@ main(int argc, char **argv)
       std::cout << std::endl;
 
       std::cout << "Enter the number of openMP threads:" << std::endl;
-      std::cout << "(the actual number used can be different to to hardware limitations)\n";
+      std::cout << "(the actual number used can be different to to hardware "
+                   "limitations)\n";
       std::cin >> num_threads;
-
-
     }
 
   MPI_Bcast(&n_rows, 1, MPI_INT, 0, mpi_comm);
@@ -114,12 +117,16 @@ main(int argc, char **argv)
   if(mpi_rank == 0)
     result.resize(n_rows);
 
-  const unsigned int count = n_rows / mpi_size;
-  const int          remainder = n_rows % mpi_size;
-
-  const unsigned int n_rows_local =
-    (mpi_rank < remainder) ? (count + 1) : count;
-
+  // Here I use the partitioner utilities to compute the counts and
+  // displacements for each rank, which will be used in the MPI_Scatterv and
+  // MPI_Gatherv calls. The partitioner takes care of distributing the rows
+  // of the matrix evenly among the ranks, taking into account any remainder
+  // if the number of rows is not divisible by the number of ranks.
+  apsc::MatrixPartitioner<apsc::GroupedPartitioner, apsc::ORDERINGTYPE::ROWWISE>
+                           partitionMatrix(n_rows, n_cols, mpi_size);
+  apsc::GroupedPartitioner partitionVector(mpi_size, n_rows);
+  const auto               n_rows_local =
+    partitionVector.last(mpi_rank) - partitionVector.first(mpi_rank);
   std::cout << "Number of rows on rank " << mpi_rank << ": " << n_rows_local
             << std::endl;
 
@@ -130,16 +137,43 @@ main(int argc, char **argv)
   if(mpi_rank == 0)
     {
       tic();
-
-      std::random_device                     engine;
+      std::random_device rd;
+      // generate a seed sequnce, one for each thread, to ensure that each
+      // thread has a different seed
+      std::seed_seq seed{rd(), rd(), rd(), rd(), rd(), rd(), rd(), rd()};
+      std::vector<std::uint32_t> seeds(num_threads);
+      seed.generate(seeds.begin(), seeds.end());
       std::uniform_real_distribution<double> rand(0, 1);
 
       // Generate matrix.
       matrix.resize(n_rows * n_cols);
-#pragma omp parallel for shared(matrix) num_threads(num_threads)
-      for(auto &m : matrix)
-        m = rand(engine);
-
+      // generate start and end indices for each thread
+      // to fill the matrix and rhs with random values in parallel using OpenMP
+      std::vector<std::size_t> start_indices(num_threads);
+      std::vector<std::size_t> end_indices(num_threads);
+      // do a block partitioning so that the differnece in the number of
+      // elements assigned to each thread is at most 1
+      std::size_t chunk_size = matrix.size() / num_threads;
+      std::size_t remainder = matrix.size() % num_threads;
+      for(std::size_t i = 0; i < static_cast<std::size_t>(num_threads); ++i)
+        {
+          start_indices[i] = i * chunk_size + std::min(i, remainder);
+          end_indices[i] =
+            start_indices[i] + chunk_size + (i < remainder ? 1 : 0);
+        }
+#pragma omp parallel shared(matrix, seeds, start_indices, end_indices, rand) \
+  num_threads(num_threads)
+      {
+        // initialize a random number generator for each thread with a different
+        // seed
+        auto         thread_num = omp_get_thread_num();
+        std::mt19937 engine(seeds[thread_num]);
+        // each threads fills a portion of the matrix with random values
+        std::size_t start_idx = start_indices[thread_num];
+        std::size_t end_idx = end_indices[thread_num];
+        for(std::size_t i = start_idx; i < end_idx; ++i)
+          matrix[i] = rand(engine);
+      }
       if(print)
         {
           std::cout << "Matrix:" << std::endl;
@@ -153,10 +187,24 @@ main(int argc, char **argv)
           std::cout << std::endl;
         }
 
-#pragma omp parallel for shared(rhs) num_threads(num_threads)
-      // Generate rhs.
-      for(auto &v : rhs)
-        v = rand(engine);
+      // create start and end indices for the vector rhs
+      // which will be filled with ones in parallel using OpenMP
+      chunk_size = rhs.size() / num_threads;
+      remainder = rhs.size() % num_threads;
+      for(std::size_t i = 0; i < static_cast<std::size_t>(num_threads); ++i)
+        {
+          start_indices[i] = i * chunk_size + std::min(i, remainder);
+          end_indices[i] =
+            start_indices[i] + chunk_size + (i < remainder ? 1 : 0);
+        }
+#pragma omp parallel shared(rhs, start_indices, end_indices) \
+  num_threads(num_threads)
+      {
+        auto thread_num = omp_get_thread_num();
+        // Generate rhs filling it with ones in parallel using OpenMP
+        std::fill(rhs.begin() + start_indices[thread_num],
+                  rhs.begin() + end_indices[thread_num], 1.0);
+      }
 
       if(print)
         {
@@ -167,111 +215,106 @@ main(int argc, char **argv)
             }
           std::cout << std::endl << std::endl;
         }
+      // prepare indices for scatterv and gatherv,
+      // which will be used to distribute the matrix and collect the result
+      // vector
+      auto [send_counts, send_start_idx] =
+        apsc::counts_and_displacements(partitionMatrix);
+      auto [recv_counts, recv_start_idx] =
+        apsc::counts_and_displacements(partitionVector);
+    }
+  std::cout << std::endl;
+  toc("Assemble matrix: time elapsed on rank " + std::to_string(mpi_rank) +
+      ": ");
+}
 
-      send_counts.resize(mpi_size);
-      send_start_idx.resize(mpi_size);
-      recv_counts.resize(mpi_size);
-      recv_start_idx.resize(mpi_size);
+tic();
+MPI_Bcast(rhs.data(), rhs.size(), MPI_DOUBLE, 0, mpi_comm);
 
-      int start_idx = 0;
-      for(int i = 0; i < mpi_size; ++i)
-        {
-          recv_counts[i] = (i < remainder) ? (count + 1) : count;
-          send_counts[i] = recv_counts[i] * n_cols;
+MPI_Scatterv(matrix.data(), send_counts.data(), send_start_idx.data(),
+             MPI_DOUBLE, matrix_local.data(), matrix_local.size(), MPI_DOUBLE,
+             0, mpi_comm);
 
-          recv_start_idx[i] = start_idx;
-          send_start_idx[i] = start_idx * n_cols;
-
-          start_idx += recv_counts[i];
-        }
-
+MPI_Barrier(mpi_comm);
+for(int rank = 0; rank < mpi_size; ++rank)
+  {
+    if(rank == mpi_rank && mpi_rank == 0)
       std::cout << std::endl;
-      toc("Assemble matrix: time elapsed on rank " + std::to_string(mpi_rank) +
-          ": ");
-    }
+    MPI_Barrier(mpi_comm);
 
-  tic();
-  MPI_Bcast(rhs.data(), rhs.size(), MPI_DOUBLE, 0, mpi_comm);
+    if(rank == mpi_rank)
+      {
+        toc("Scatter: time elapsed on rank " + std::to_string(mpi_rank) + ": ");
+      }
 
-  MPI_Scatterv(matrix.data(), send_counts.data(), send_start_idx.data(),
-               MPI_DOUBLE, matrix_local.data(), matrix_local.size(), MPI_DOUBLE,
-               0, mpi_comm);
-
-  MPI_Barrier(mpi_comm);
-  for(int rank = 0; rank < mpi_size; ++rank)
-    {
-      if(rank == mpi_rank && mpi_rank == 0)
-        std::cout << std::endl;
-      MPI_Barrier(mpi_comm);
-
-      if(rank == mpi_rank)
-        {
-          toc("Scatter: time elapsed on rank " + std::to_string(mpi_rank) +
-              ": ");
-        }
-
-      MPI_Barrier(mpi_comm);
-    }
-
-  tic();
+    MPI_Barrier(mpi_comm);
+  }
+// an use of mdspan to access the local matrix as a 2D array
+// mdspan is a C++23 feature that allows for multi-dimensional array views
+// without copying data creates a mdspan view of the local matrix with the
+// specified extents and row-major layout
+// std::mdspan<double, std::extents<std::size_t, std::size_t>,
+// std::layout_right> matrix_local_2d(matrix_local.data(), n_rows_local,
+// n_cols);
+tic();
 #pragma omp parallel for shared(result_local) num_threads(num_threads)
-  for(unsigned int i = 0; i < n_rows_local; ++i)
-    {
-      for(unsigned int j = 0; j < n_cols; ++j)
-        {
-          result_local[i] += matrix_local[i * n_cols + j] * rhs[j];
-        }
-    }
+for(std::size_t i = 0; i < n_rows_local; ++i)
+  {
+    for(std::size_t j = 0; j < n_cols; ++j)
+      {
+        // result_local[i] += matrix_local_2d(i, j) * rhs[j]; // if using
+        // mdspan
+        result_local[i] += matrix_local[i * n_cols + j] * rhs[j];
+      }
+  }
 
-  MPI_Barrier(mpi_comm);
-  for(int rank = 0; rank < mpi_size; ++rank)
-    {
-      if(rank == mpi_rank && mpi_rank == 0)
-        std::cout << std::endl;
-      MPI_Barrier(mpi_comm);
+MPI_Barrier(mpi_comm);
+for(int rank = 0; rank < mpi_size; ++rank)
+  {
+    if(rank == mpi_rank && mpi_rank == 0)
+      std::cout << std::endl;
+    MPI_Barrier(mpi_comm);
 
-      if(rank == mpi_rank)
-        {
-          toc("Matrix-vector product: time elapsed on rank " +
-              std::to_string(mpi_rank) + ": ");
-        }
+    if(rank == mpi_rank)
+      {
+        toc("Matrix-vector product: time elapsed on rank " +
+            std::to_string(mpi_rank) + ": ");
+      }
 
-      MPI_Barrier(mpi_comm);
-    }
+    MPI_Barrier(mpi_comm);
+  }
 
-  tic();
+tic();
 
-  MPI_Gatherv(result_local.data(), result_local.size(), MPI_DOUBLE,
-              result.data(), recv_counts.data(), recv_start_idx.data(),
-              MPI_DOUBLE, 0, mpi_comm);
+MPI_Gatherv(result_local.data(), result_local.size(), MPI_DOUBLE, result.data(),
+            recv_counts.data(), recv_start_idx.data(), MPI_DOUBLE, 0, mpi_comm);
 
-  if(print && mpi_rank == 0)
-    {
-      std::cout << std::endl << "Result:" << std::endl;
+if(print && mpi_rank == 0)
+  {
+    std::cout << std::endl << "Result:" << std::endl;
 
-      for(const auto &v : result)
-        std::cout << std::setw(12) << v;
+    for(const auto &v : result)
+      std::cout << std::setw(12) << v;
 
-      std::cout << std::endl << std::endl;
-    }
+    std::cout << std::endl << std::endl;
+  }
 
-  MPI_Barrier(mpi_comm);
-  for(int rank = 0; rank < mpi_size; ++rank)
-    {
-      if(rank == mpi_rank && mpi_rank == 0)
-        std::cout << std::endl;
-      MPI_Barrier(mpi_comm);
+MPI_Barrier(mpi_comm);
+for(int rank = 0; rank < mpi_size; ++rank)
+  {
+    if(rank == mpi_rank && mpi_rank == 0)
+      std::cout << std::endl;
+    MPI_Barrier(mpi_comm);
 
-      if(rank == mpi_rank)
-        {
-          toc("Gather: time elapsed on rank " + std::to_string(mpi_rank) +
-              ": ");
-        }
+    if(rank == mpi_rank)
+      {
+        toc("Gather: time elapsed on rank " + std::to_string(mpi_rank) + ": ");
+      }
 
-      MPI_Barrier(mpi_comm);
-    }
+    MPI_Barrier(mpi_comm);
+  }
 
-  MPI_Finalize();
+MPI_Finalize();
 
-  return 0;
+return 0;
 }

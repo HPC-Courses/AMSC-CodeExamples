@@ -249,7 +249,7 @@ enum class ORDERINGTYPE
  * @tparam P A partitioner, either GroupedPartitioner or DistributedPartitioner
  * @tparam O The ordering type
  */
-template <typename P = DistributedPartitioner,
+template <typename P = GroupedPartitioner,
           ORDERINGTYPE O = ORDERINGTYPE::ROWWISE>
 class MatrixPartitioner
 {
