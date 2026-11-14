@@ -5,6 +5,7 @@
 #include <omp.h>
 #pragma GCC diagnostic pop
 
+#include "GetPot"
 #include <../../Utilities/partitioner.hpp>
 #include <algorithm>
 #include <iomanip>
@@ -16,13 +17,34 @@
 // allows for multi-dimensional array views
 //  See https://en.cppreference.com/w/cpp/experimental/mdspan for more
 //  information.
-static double c_start, c_diff;
-#define tic() c_start = MPI_Wtime();
-#define toc(x)                                       \
-  {                                                  \
-    c_diff = MPI_Wtime() - c_start;                  \
-    std::cout << x << c_diff << " [s]" << std::endl; \
-  }
+static double c_start{0.};
+inline void
+tic()
+{
+  c_start = MPI_Wtime();
+}
+inline double
+toc()
+{
+  return MPI_Wtime() - c_start;
+}
+inline void
+printout(double const c_diff, const std::string &x)
+{
+  std::cout << x << c_diff << " [s]" << std::endl;
+}
+
+void
+printHelp()
+{
+  std::cout
+    << "Usage: mpirun -n <processes> ./main_matrix_vector_product [options]\n"
+    << "  -r, --rows <number>     Matrix rows (default: 1000)\n"
+    << "  -c, --cols <number>     Matrix columns (default: 1000)\n"
+    << "  -t, --threads <number>  OpenMP threads (default: 1)\n"
+    << "  -v                     Print matrix, vector and result\n"
+    << "  -h, --help             Print this synopsis and exit\n";
+}
 
 /**
  * Parallel matrix-vector product.
@@ -55,13 +77,11 @@ main(int argc, char **argv)
   int mpi_size;
   MPI_Comm_size(mpi_comm, &mpi_size);
 
-  if(mpi_rank == 0)
-    std::cout << "Number of processes: " << mpi_size << std::endl;
-
   // Set to true to print matrix, vector and result.
   // only for debug purposes, as printing large matrices and vectors is not
   // practical.
-  const bool print = false;
+  GetPot     options(argc, argv);
+  const bool print = options.search("-v");
 
   unsigned int n_rows;
   unsigned int n_cols;
@@ -71,40 +91,43 @@ main(int argc, char **argv)
   std::vector<double> result;
 
   int num_threads;
+  int input_status = 0;
   if(mpi_rank == 0)
     {
-      std::cout << std::endl << "Enter the number of matrix rows:" << std::endl;
-      std::cin >> n_rows;
-
-      if(n_rows < 1)
+      if(options.search(2, "-h", "--help"))
         {
-          std::cerr << "ERROR: Number of rows should be greater than 1."
-                    << std::endl;
-
-          return 1;
+          printHelp();
+          input_status = 1;
         }
-
-      std::cout << "Enter the number of matrix columns:" << std::endl;
-      std::cin >> n_cols;
-
-      if(n_cols < 1)
+      else
         {
-          std::cerr << "ERROR: Number of columns should be greater than 1."
-                    << std::endl;
-
-          return 1;
+          const int rows = options.follow(1000, 2, "-r", "--rows");
+          const int cols = options.follow(1000, 2, "-c", "--cols");
+          num_threads = options.follow(1, 2, "-t", "--threads");
+          if(rows < 1 || cols < 1 || num_threads < 1)
+            {
+              std::cerr << "ERROR: Rows, columns and threads must be positive."
+                        << std::endl;
+              input_status = 2;
+            }
+          else
+            {
+              n_rows = rows;
+              n_cols = cols;
+              std::cout << "Number of processes: " << mpi_size << std::endl;
+            }
         }
-
-      std::cout << std::endl;
-
-      std::cout << "Enter the number of openMP threads:" << std::endl;
-      std::cout << "(the actual number used can be different to to hardware "
-                   "limitations)\n";
-      std::cin >> num_threads;
     }
 
-  MPI_Bcast(&n_rows, 1, MPI_INT, 0, mpi_comm);
-  MPI_Bcast(&n_cols, 1, MPI_INT, 0, mpi_comm);
+  MPI_Bcast(&input_status, 1, MPI_INT, 0, mpi_comm);
+  if(input_status != 0)
+    {
+      MPI_Finalize();
+      return input_status == 1 ? 0 : 1;
+    }
+
+  MPI_Bcast(&n_rows, 1, MPI_UNSIGNED, 0, mpi_comm);
+  MPI_Bcast(&n_cols, 1, MPI_UNSIGNED, 0, mpi_comm);
   MPI_Bcast(&num_threads, 1, MPI_INT, 0, mpi_comm);
 
   rhs.resize(n_cols);
@@ -128,10 +151,11 @@ main(int argc, char **argv)
 
   std::vector<double> result_local(n_rows_local, 0.0);
 
-  std::vector<int> send_counts;
-  std::vector<int> send_start_idx;
-  std::vector<int> recv_counts;
-  std::vector<int> recv_start_idx;
+  std::vector<int>    send_counts;
+  std::vector<int>    send_start_idx;
+  std::vector<int>    recv_counts;
+  std::vector<int>    recv_start_idx;
+  std::vector<double> timings(mpi_size, 0.0);
   if(mpi_rank == 0)
     {
       tic();
@@ -149,8 +173,12 @@ main(int argc, char **argv)
       {
         // initialize a random number generator for each thread with a different
         // seed
-        auto         thread_num = omp_get_thread_num();
-        std::mt19937 engine(seeds[thread_num]);
+#if defined(_OPENMP)
+        auto thread_num = omp_get_thread_num();
+#else
+        auto thread_num = 0;
+#endif
+        std::mt19937                           engine(seeds[thread_num]);
         std::uniform_real_distribution<double> rand(0, 1);
 #pragma omp for schedule(static)
         for(std::size_t i = 0; i < matrix.size(); ++i)
@@ -184,8 +212,8 @@ main(int argc, char **argv)
           std::cout << std::endl << std::endl;
         }
       std::cout << std::endl;
-      toc("Assemble matrix: time elapsed on rank " + std::to_string(mpi_rank) +
-          ": ");
+      printout(toc(), "Assemble matrix: time elapsed on rank " +
+                        std::to_string(mpi_rank) + ": ");
       // counts and displacements are in the scope of rank 0,
       // as they are only needed for the MPI_Scatterv and MPI_Gatherv calls.
       std::tie(send_counts, send_start_idx) =
@@ -201,6 +229,7 @@ main(int argc, char **argv)
                MPI_DOUBLE, matrix_local.data(), matrix_local.size(), MPI_DOUBLE,
                0, mpi_comm);
 
+  timings[mpi_rank] = toc();
   MPI_Barrier(mpi_comm);
   for(int rank = 0; rank < mpi_size; ++rank)
     {
@@ -210,16 +239,34 @@ main(int argc, char **argv)
 
       if(rank == mpi_rank)
         {
-          toc("Scatter: time elapsed on rank " + std::to_string(mpi_rank) +
-              ": ");
+          printout(timings[mpi_rank], "Scatter: time elapsed on rank " +
+                                        std::to_string(mpi_rank) + ": ");
         }
 
       MPI_Barrier(mpi_comm);
     }
-  // an use of mdspan to access the local matrix as a 2D array
-  // mdspan is a C++23 feature that allows for multi-dimensional array views
-  // without copying data creates a mdspan view of the local matrix with the
-  // specified extents and row-major layout
+    // To make measuring meaningful I need to make sure that all ranks have
+    // initialised OpenMP, otherwise, only rank 0 will have initialised OpenMP
+    // and the timings will be skewed. This is a known issue with OpenMP and
+    // MPI. This modification is however needed only for timings. In a real code
+    // you may ignore it, as the first call to an OpenMP parallel region will
+    // initialize OpenMP on all ranks.
+
+    // Warm up OpenMP on every MPI rank.
+#if defined(_OPENMP)
+  int warmup = 0;
+#pragma omp parallel num_threads(num_threads) shared(warmup)
+  {
+#pragma omp atomic update
+    warmup += omp_get_thread_num() + 1;
+  }
+#endif
+  // Align ranks before starting the measurement.
+  MPI_Barrier(mpi_comm);
+
+  // mdspan is a C++23 feature that allows for
+  // multi-dimensional array views without copying data creates a mdspan view of
+  // the local matrix with the specified extents and row-major layout
   // std::mdspan<double, std::extents<std::size_t, std::size_t>,
   // std::layout_right> matrix_local_2d(matrix_local.data(), n_rows_local,
   // n_cols);
@@ -234,37 +281,27 @@ main(int argc, char **argv)
           result_local[i] += matrix_local[i * n_cols + j] * rhs[j];
         }
     }
-
+  double time = toc();
+  // gather timeings from all ranks and print them on rank 0
+  MPI_Gather(&time, 1, MPI_DOUBLE, timings.data(), 1, MPI_DOUBLE, 0, mpi_comm);
   MPI_Barrier(mpi_comm);
-  // This trick is to ensure that the output of the timings is printed in order
-  // of rank, which makes it easier to read and compare the timings across
-  // ranks. The trick is to have each rank wait for the previous rank to finish
-  // printing its timing before it prints its own timing. This is done by having
-  // each rank call MPI_Barrier and then check if it is its turn to print. If it
-  // is, it prints its timing and then calls MPI_Barrier again to signal the
-  // next rank that it can print. If it is not its turn, it just calls
-  // MPI_Barrier and waits for the next rank to finish printing.
-  for(int rank = 0; rank < mpi_size; ++rank)
+
+  if(mpi_rank == 0)
     {
-      if(rank == mpi_rank && mpi_rank == 0)
-        std::cout << std::endl;
-      MPI_Barrier(mpi_comm);
-
-      if(rank == mpi_rank)
+      for(int rank = 0; rank < mpi_size; ++rank)
         {
-          toc("Matrix-vector product: time elapsed on rank " +
-              std::to_string(mpi_rank) + ": ");
+          printout(timings[rank],
+                   "Matrix-vector product: time elapsed on rank " +
+                     std::to_string(rank) + ": ");
         }
-
-      MPI_Barrier(mpi_comm);
     }
 
   tic();
-
   MPI_Gatherv(result_local.data(), result_local.size(), MPI_DOUBLE,
               result.data(), recv_counts.data(), recv_start_idx.data(),
               MPI_DOUBLE, 0, mpi_comm);
 
+  timings[mpi_rank] = toc();
   if(print && mpi_rank == 0)
     {
       std::cout << std::endl << "Result:" << std::endl;
@@ -276,6 +313,11 @@ main(int argc, char **argv)
     }
 
   MPI_Barrier(mpi_comm);
+  // This is a trick only to make the output more readable. It avoids garbled
+  // output. It does not guarantee that the output respact rank order.
+  // In a real code you may ignore it, unless output  it is important for you.
+  // If also the order is important, you need to collect data on a single rank
+  // and print them from there, or use MPI I/O.
   for(int rank = 0; rank < mpi_size; ++rank)
     {
       if(rank == mpi_rank && mpi_rank == 0)
@@ -284,8 +326,8 @@ main(int argc, char **argv)
 
       if(rank == mpi_rank)
         {
-          toc("Gather: time elapsed on rank " + std::to_string(mpi_rank) +
-              ": ");
+          printout(timings[mpi_rank], "Gather: time elapsed on rank " +
+                                        std::to_string(mpi_rank) + ": ");
         }
 
       MPI_Barrier(mpi_comm);

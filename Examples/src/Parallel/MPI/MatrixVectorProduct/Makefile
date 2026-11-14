@@ -21,6 +21,11 @@ include $(MAKEFILEH_DIR)/Makefile.inc
 # You may have an include file also in the current directory
 #
 -include Makefile.inc
+
+# Keep OpenMP flags out of CXX: normal builds use MPI only.
+OPENMP_FLAGS ?= -fopenmp
+# GetPot is supplied by the repository's Utilities directory.
+CPPFLAGS += -I../../../Utilities
 #
 # The general setting is as follows:
 # mains are identified bt main_XX.cpp
@@ -35,16 +40,27 @@ HEADERS=$(wildcard *.hpp)
 #
 exe_sources=$(filter main%.cpp,$(SRCS))
 EXEC=$(exe_sources:.cpp=)
+OPENMP_OBJS=$(SRCS:.cpp=.openmp.o)
+OPENMP_EXEC=$(addsuffix _openmp,$(EXEC))
 
 #========================== ORA LA DEFINIZIONE DEGLI OBIETTIVI
-.phony= all clean distclean doc
+.PHONY: all openmp clean distclean doc
 
 .DEFAULT_GOAL = all
 
 all: $(DEPEND) $(EXEC)
 
+# Separate objects and executables allow both build modes to coexist.
+openmp: $(DEPEND) $(OPENMP_EXEC)
+
+$(OPENMP_EXEC): $(OPENMP_OBJS)
+	$(CXX) $(LDFLAGS) $(TARGET_ARCH) $(OPENMP_FLAGS) $^ $(LOADLIBES) $(LDLIBS) -o $@
+
+%.openmp.o: %.cpp
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(OPENMP_FLAGS) -c $< -o $@
+
 clean:
-	$(RM) -f $(EXEC) $(OBJS)
+	$(RM) -f $(EXEC) $(OBJS) $(OPENMP_EXEC) $(OPENMP_OBJS)
 
 distclean:
 	$(MAKE) clean
@@ -58,10 +74,14 @@ $(EXEC): $(OBJS)
 
 $(OBJS): $(SRCS)
 
-$(DEPEND): $(SRCS)
+# Rebuild existing objects when the build configuration changes.
+$(OBJS) $(OPENMP_OBJS): Makefile Makefile.inc $(MAKEFILEH_DIR)/Makefile.inc
+
+$(DEPEND): $(SRCS) Makefile Makefile.inc $(MAKEFILEH_DIR)/Makefile.inc
 	$(RM) $(DEPEND)
 	for f in $(SRCS); do \
-	$(CXX) $(STDFLAGS) $(CPPFLAGS) -MM $$f >> $(DEPEND); \
+	$(CXX) $(STDFLAGS) $(CPPFLAGS) -MM \
+	  -MT "$${f%.cpp}.o" -MT "$${f%.cpp}.openmp.o" $$f >> $(DEPEND); \
 	done
 
 -include $(DEPEND)

@@ -1,2 +1,2 @@
-CXX=mpic++ -fopenmp
+CXX=mpic++
 DEBUG=no
