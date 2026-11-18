@@ -48,7 +48,7 @@ OPENMP_EXEC=$(addsuffix _openmp,$(EXEC))
 
 .DEFAULT_GOAL = all
 
-all: $(DEPEND) $(EXEC)
+all: $(DEPEND) $(EXEC) openmp
 
 # Separate objects and executables allow both build modes to coexist.
 openmp: $(DEPEND) $(OPENMP_EXEC)
