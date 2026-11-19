@@ -7,7 +7,7 @@
 
 #ifndef AMSC_EXAMPLES_EXAMPLES_SRC_PARALLEL_MPI_PMATRIX_PMATRIX_HPP_
 #define AMSC_EXAMPLES_EXAMPLES_SRC_PARALLEL_MPI_PMATRIX_PMATRIX_HPP_
-#include "Matrix.hpp"      // in Matrix/
+#include "Matrix.hpp" // in Matrix/
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wsuggest-override"
 #pragma GCC diagnostic ignored "-Wcast-function-type"
@@ -84,7 +84,8 @@ protected:
   std::vector<int> counts;        // The vector used for gathering/scattering
   std::vector<int> displacements; // The vector used for gathering/scattering
   Matrix           localMatrix;   // The local portion of the matrix
-  std::vector<Scalar> localProduct; // The place where to store the result of the local mult.
+  std::vector<Scalar>
+    localProduct; // The place where to store the result of the local mult.
   std::size_t local_nRows = 0u;
   std::size_t local_nCols = 0u;
   std::size_t global_nRows = 0u;
@@ -139,8 +140,8 @@ apsc::PMatrix<Matrix>::setup(const Matrix &gMat, MPI_Comm communic)
     global_nRows, global_nCols, mpi_size); // the partitioner
 
   auto countAndDisp = apsc::counts_and_displacements(partitioner);
-  counts = countAndDisp[0];
-  displacements = countAndDisp[1];
+  counts = countAndDisp.first;
+  displacements = countAndDisp.second;
   localRandC = partitioner.getLocalRowsAndCols(mpi_size);
   local_nRows = localRandC[0][mpi_rank];
   local_nCols = localRandC[1][mpi_rank];

@@ -77,10 +77,10 @@ main(int argc, char **argv)
   int mpi_size;
   MPI_Comm_size(mpi_comm, &mpi_size);
 
+  GetPot options(argc, argv);
   // Set to true to print matrix, vector and result.
   // only for debug purposes, as printing large matrices and vectors is not
   // practical.
-  GetPot     options(argc, argv);
   const bool print = options.search("-v");
 
   unsigned int n_rows;
@@ -90,7 +90,7 @@ main(int argc, char **argv)
   std::vector<double> rhs;
   std::vector<double> result;
 
-  int num_threads;
+  int num_threads{0};
   int input_status = 0;
   if(mpi_rank == 0)
     {
@@ -118,7 +118,14 @@ main(int argc, char **argv)
             }
         }
     }
-
+  // I still need to broadcast the input_status to all ranks, so that they can
+  // exit gracefully if there was an error in the input. This is important
+  // because if rank 0 exits without notifying the other ranks, they will hang
+  // waiting for communication that will never happen. This is a common issue in
+  // MPI programs when the root process encounters an error and exits without
+  // informing the other processes. By broadcasting the input_status, all ranks
+  // can check if they should continue or exit, ensuring that the program
+  // terminates cleanly.
   MPI_Bcast(&input_status, 1, MPI_INT, 0, mpi_comm);
   if(input_status != 0)
     {
@@ -126,11 +133,24 @@ main(int argc, char **argv)
       return input_status == 1 ? 0 : 1;
     }
 
-  MPI_Bcast(&n_rows, 1, MPI_UNSIGNED, 0, mpi_comm);
-  MPI_Bcast(&n_cols, 1, MPI_UNSIGNED, 0, mpi_comm);
-  MPI_Bcast(&num_threads, 1, MPI_INT, 0, mpi_comm);
+  // I need to broadcast the number of rows, columns and threads to all ranks.
+  // I use a tuple to do a single communication instead of three separate
+  // broadcasts. This is more efficient and reduces the number of MPI calls,
+  // which can be costly in terms of performance. By packing the values
+  // into a single data structure, I can send them all at once.
+  std::tuple<unsigned int, unsigned int, int> input_data(n_rows, n_cols,
+                                                         num_threads);
+  MPI_Bcast(&input_data, sizeof(input_data), MPI_BYTE, 0, mpi_comm);
+  std::tie(n_rows, n_cols, num_threads) = input_data;
+  /* This if you do separate communications*/
+  // MPI_Bcast(&n_rows, 1, MPI_UNSIGNED, 0, mpi_comm);
+  // MPI_Bcast(&n_cols, 1, MPI_UNSIGNED, 0, mpi_comm);
+  // MPI_Bcast(&num_threads, 1, MPI_INT, 0, mpi_comm);
 
   rhs.resize(n_cols);
+  // The result vector is only needed on rank 0, as it will gather the results
+  // from all ranks. Other ranks do not need to store the final result, as they
+  // only compute their local contributions to the matrix-vector product.
   if(mpi_rank == 0)
     result.resize(n_rows);
 
@@ -139,6 +159,8 @@ main(int argc, char **argv)
   // MPI_Gatherv calls. The partitioner takes care of distributing the rows
   // of the matrix evenly among the ranks, taking into account any remainder
   // if the number of rows is not divisible by the number of ranks.
+  // Important: the paritioner type must match and the ordering type must match
+  // the way the matrix is stored in memory.
   apsc::MatrixPartitioner<apsc::GroupedPartitioner, apsc::ORDERINGTYPE::ROWWISE>
                            partitionMatrix(n_rows, n_cols, mpi_size);
   apsc::GroupedPartitioner partitionVector(mpi_size, n_rows);
@@ -151,10 +173,13 @@ main(int argc, char **argv)
 
   std::vector<double> result_local(n_rows_local, 0.0);
 
-  std::vector<int>    send_counts;
-  std::vector<int>    send_start_idx;
-  std::vector<int>    recv_counts;
-  std::vector<int>    recv_start_idx;
+  // Indices and counts for the MPI_Scatterv: to scatter matrix
+  std::vector<int> send_counts_matrix;
+  std::vector<int> send_start_idx_matrix;
+  // Indices and counts for the MPI_Gatherv: to gather result
+  std::vector<int> recv_counts_rhs;
+  std::vector<int> recv_start_idx_rhs;
+
   std::vector<double> timings(mpi_size, 0.0);
   if(mpi_rank == 0)
     {
@@ -162,6 +187,12 @@ main(int argc, char **argv)
       std::random_device rd;
       // generate a seed sequnce, one for each thread, to ensure that each
       // thread has a different seed
+      // I am using the random device to generate a seed sequence, which is
+      // then used to generate a vector of seeds for each thread. This means
+      // that I have a different matrix at each run. If you want reproducible
+      // results, you can use a fixed seed instead of a random device. For
+      // example, you can use std::seed_seq seed{1, 2, 3, 4, 5, 6, 7, 8}; to
+      // generate the same matrix every time.
       std::seed_seq seed{rd(), rd(), rd(), rd(), rd(), rd(), rd(), rd()};
       std::vector<std::uint32_t> seeds(num_threads);
       seed.generate(seeds.begin(), seeds.end());
@@ -216,20 +247,31 @@ main(int argc, char **argv)
                         std::to_string(mpi_rank) + ": ");
       // counts and displacements are in the scope of rank 0,
       // as they are only needed for the MPI_Scatterv and MPI_Gatherv calls.
-      std::tie(send_counts, send_start_idx) =
+      std::tie(send_counts_matrix, send_start_idx_matrix) =
         apsc::counts_and_displacements(partitionMatrix);
-      std::tie(recv_counts, recv_start_idx) =
+      std::tie(recv_counts_rhs, recv_start_idx_rhs) =
         apsc::counts_and_displacements(partitionVector);
     }
 
   tic();
+  // Broadcast the rhs vector to all ranks. This is necessary because each rank
+  // needs the full rhs vector to compute its local matrix-vector product. The
+  // rhs vector is generated only on rank 0, so it must be sent to all.
   MPI_Bcast(rhs.data(), rhs.size(), MPI_DOUBLE, 0, mpi_comm);
-
-  MPI_Scatterv(matrix.data(), send_counts.data(), send_start_idx.data(),
-               MPI_DOUBLE, matrix_local.data(), matrix_local.size(), MPI_DOUBLE,
-               0, mpi_comm);
+  // Scatter the matrix to all ranks. Each rank receives its local block of rows
+  // of the matrix. The matrix is stored in row-major order, so each rank gets
+  // a contiguous block of rows. The send_counts_matrix and
+  // send_start_idx_matrix vectors specify how many elements to send to each
+  // rank and where to start sending from in the original matrix. This allows
+  // for a flexible distribution of the matrix rows among the ranks, even if the
+  // number of rows is not evenly divisible by the number of ranks.
+  MPI_Scatterv(matrix.data(), send_counts_matrix.data(),
+               send_start_idx_matrix.data(), MPI_DOUBLE, matrix_local.data(),
+               matrix_local.size(), MPI_DOUBLE, 0, mpi_comm);
 
   timings[mpi_rank] = toc();
+  // This is a trick only to make the output more readable. It avoids garbled
+  // output. It does not guarantee that the output respects rank order.
   MPI_Barrier(mpi_comm);
   for(int rank = 0; rank < mpi_size; ++rank)
     {
@@ -253,6 +295,10 @@ main(int argc, char **argv)
     // initialize OpenMP on all ranks.
 
     // Warm up OpenMP on every MPI rank.
+    // This is not needed anymore sinace I have already
+    // called mmp_get_thred_num in all ranks, which initializes OpenMP.
+    // However, I will keep it here for clarity and to ensure that OpenMP is
+    // initialized on all ranks before the timing starts.
 #if defined(_OPENMP)
   int warmup = 0;
 #pragma omp parallel num_threads(num_threads) shared(warmup)
@@ -283,6 +329,9 @@ main(int argc, char **argv)
     }
   double time = toc();
   // gather timeings from all ranks and print them on rank 0
+  // THis is the only way to ensure that ranks are printing in order,
+  // The trick above only guarantees that the utput is not grarbled,
+  // but does not guarantee that the output is in order.
   MPI_Gather(&time, 1, MPI_DOUBLE, timings.data(), 1, MPI_DOUBLE, 0, mpi_comm);
   MPI_Barrier(mpi_comm);
 
@@ -297,8 +346,14 @@ main(int argc, char **argv)
     }
 
   tic();
+  // Gather the local results from all ranks to rank 0. Each rank sends its
+  // local result vector to rank 0, which collects them into the final result
+  // vector. The recv_counts_rhs and recv_start_idx_rhs vectors specify how many
+  // elements to receive from each rank and where to place them in the final
+  // result vector. This allows for a flexible collection of the local results
+  // into the final result vector, even if the number of rows is not evenly
   MPI_Gatherv(result_local.data(), result_local.size(), MPI_DOUBLE,
-              result.data(), recv_counts.data(), recv_start_idx.data(),
+              result.data(), recv_counts_rhs.data(), recv_start_idx_rhs.data(),
               MPI_DOUBLE, 0, mpi_comm);
 
   timings[mpi_rank] = toc();
