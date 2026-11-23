@@ -72,10 +72,13 @@ golden_search(Function const &f, double a, double b, double tol = 1.e-5,
     }
   // test for convergence: have I found the minimum
   // I estimate the derivative with a finite difference
-  constexpr double epsilon = std::numeric_limits<double>::epsilon();
+  // constexpr double epsilon = std::numeric_limits<double>::epsilon();
+  bool ok = iter < maxIter;
+  /*
   bool ok = std::abs(d - c) > epsilon
               ? std::abs(f(c) - f(d)) / std::abs(d - c) < tol
               : true; // If d and c are too close, consider converged
+*/
   return {0.5 * (a + b), ok};
 }
 

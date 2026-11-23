@@ -9,6 +9,23 @@ using funct = const std::function<double(double)> &;
 
 PYBIND11_MODULE(basicOptim, m)
 {
+  m.doc() = R"pbdoc(
+    basicOptim: one-dimensional optimization algorithms.
+
+    Functions
+    ---------
+    golden_search(f, a, b, tol, maxIter)
+        Find a minimum using golden-section search.
+    Brent_glomin(a, b, x0, m, e, t, f)
+        Find a global minimum using Brent's method.
+    Brent_local_min(a, b, tol, f)
+        Find a local minimum using Brent's method.
+    bracketIntervalMinimum(f, x1, h, maxIter)
+        Find an interval that brackets a minimum.
+
+    Use help(basicOptim.function_name) for details on an individual function.
+    )pbdoc";
+
   m.def("golden_search", &golden_search<funct>, py::arg("f"), py::arg("a"),
         py::arg("b"), py::arg("tol"), py::arg("maxIter"),
         R"!(
